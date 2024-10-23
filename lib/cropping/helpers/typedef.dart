@@ -12,5 +12,3 @@ typedef CroppingRectBuilder = ViewportBasedRect Function(
   ViewportBasedRect viewportRect,
   ViewportBasedRect imageRect,
 );
-
- 

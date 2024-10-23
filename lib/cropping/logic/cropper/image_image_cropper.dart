@@ -1,10 +1,7 @@
 import 'dart:async';
 import 'dart:math';
-
 import 'dart:typed_data';
-
 import 'dart:ui';
-
 import 'package:crop_image_module/cropping/logic/cropper/errors.dart';
 import 'package:crop_image_module/cropping/logic/cropper/image_cropper.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart'
