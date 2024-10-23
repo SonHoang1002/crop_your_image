@@ -1,6 +1,6 @@
 import 'dart:typed_data';
-import 'package:crop_image_module/cropping/helpers/enums/typedef.dart';
-import 'package:flutter/widgets.dart';
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
+import 'package:flutter/widgets.dart'; 
 
 /// Controller to control crop actions.
 class CropController {

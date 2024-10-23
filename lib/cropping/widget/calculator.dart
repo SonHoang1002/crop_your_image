@@ -1,6 +1,6 @@
 import 'dart:developer' as dev;
 import 'dart:math';
-import 'package:crop_image_module/cropping/helpers/enums/typedef.dart';
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
 import 'package:flutter/widgets.dart';
 
