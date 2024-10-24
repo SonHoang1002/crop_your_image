@@ -140,6 +140,15 @@ class MinhCrop extends StatelessWidget {
   /// Dot size, (defaul: [constDotTotalSize])
   final double dotTotalSize;
 
+  /// Used to check whether if always show crop frame
+  final bool alwaysShowCropFrame;
+
+  /// Color for 4 divider
+  final Color? colorDivider;
+
+  /// Color for outer edge
+  final Color? colorCropEdge;
+
   MinhCrop({
     super.key,
     required this.image,
@@ -167,10 +176,13 @@ class MinhCrop extends StatelessWidget {
     this.scrollZoomSensitivity = 0.05,
     this.paddingHorizontal,
     this.paddingVertical,
+    this.alwaysShowCropFrame = false,
     this.dotTotalSize = constDotTotalSize,
+    this.colorCropEdge,
+    this.colorDivider,
   })  : assert((initialSize ?? 1.0) <= 1.0,
             'initialSize must be less than 1.0, or null meaning not specified.'),
-        this.imageParser = defaultImageParser;
+        imageParser = defaultImageParser;
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +222,9 @@ class MinhCrop extends StatelessWidget {
             paddingHorizontal: paddingHorizontal ?? 30,
             paddingVertical: paddingHorizontal ?? 30,
             dotSize: dotTotalSize,
+            alwaysShowCropFrame: alwaysShowCropFrame,
+            colorCropEdge: colorCropEdge ?? Colors.blue,
+            colorDivider: colorDivider ?? Colors.white.withOpacity(0.5),
           ),
         );
       },
@@ -246,6 +261,9 @@ class _CropEditor extends StatefulWidget {
   final double paddingHorizontal;
   final double paddingVertical;
   final double dotSize;
+  final bool alwaysShowCropFrame;
+  final Color colorCropEdge;
+  final Color colorDivider;
 
   const _CropEditor({
     super.key,
@@ -276,6 +294,9 @@ class _CropEditor extends StatefulWidget {
     required this.paddingHorizontal,
     required this.paddingVertical,
     required this.dotSize,
+    required this.alwaysShowCropFrame,
+    required this.colorCropEdge,
+    required this.colorDivider,
   });
 
   @override
@@ -922,13 +943,14 @@ class _CropEditorState extends State<_CropEditor>
               Positioned.fromRect(
                 rect: _cropRect,
                 child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: Colors.blue,
+                          color: widget.colorCropEdge,
                           width: 1.66,
                         ),
                       ),
@@ -943,11 +965,12 @@ class _CropEditorState extends State<_CropEditor>
                   width: 1,
                 ),
                 child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.white.withOpacity(0.5),
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
@@ -958,27 +981,28 @@ class _CropEditorState extends State<_CropEditor>
                   width: 1,
                 ),
                 child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.white.withOpacity(0.5),
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
               ),
-
               Positioned.fromRect(
                 rect: _cropRect.copyWith(
                   top: _cropRect.top + _cropRect.height / 3 - 0.5,
                   height: 1,
                 ),
                 child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.white.withOpacity(0.5),
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
@@ -989,11 +1013,12 @@ class _CropEditorState extends State<_CropEditor>
                   height: 1,
                 ),
                 child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.white.withOpacity(0.5),
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
