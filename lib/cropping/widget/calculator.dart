@@ -49,17 +49,27 @@ abstract class Calculator {
   }
 
   /// calculates [ViewportBasedRect] of the result of user moving the top-left dot.
-  ViewportBasedRect moveTopLeft(
-    ViewportBasedRect original,
-    double deltaX,
-    double deltaY,
-    ViewportBasedRect imageRect,
+  /// * [original] -> Crop Size
+  /// * [imageRect] -> Image Size
+  /// * [dotSize] -> Size of dot
+  /// * [aspectRatio] -> Maintain aspect ratio for crop rect
+  ViewportBasedRect moveTopLeft({
+    required ViewportBasedRect original,
+    required ViewportBasedRect imageRect,
+    required double deltaX,
+    required double deltaY,
+    required double dotSize,
     double? aspectRatio,
-  ) {
-    final newLeft =
-        max(imageRect.left, min(original.left + deltaX, original.right - 40));
-    final newTop =
-        min(max(original.top + deltaY, imageRect.top), original.bottom - 40);
+  }) {
+    double newLeft = max(
+      max(0, imageRect.left), // min limit
+      min(original.left + deltaX, original.right - dotSize), // max limit
+    );
+
+    double newTop = min(
+      max(original.top + deltaY, max(0, imageRect.top)), // min limit
+      original.bottom - dotSize, // max limit
+    );
     if (aspectRatio == null) {
       return Rect.fromLTRB(
         newLeft,
@@ -100,17 +110,28 @@ abstract class Calculator {
   }
 
   /// calculates [ViewportBasedRect] of the result of user moving the top-right dot.
-  ViewportBasedRect moveTopRight(
-    ViewportBasedRect original,
-    double deltaX,
-    double deltaY,
-    ViewportBasedRect imageRect,
+  /// * [original] -> Crop Size
+  /// * [imageRect] -> Image Size
+  /// * [dotSize] -> Size of dot
+  /// * [aspectRatio] -> Maintain aspect ratio for crop rect
+  /// * [viewportSize] -> Size of preview and gesture area
+  ViewportBasedRect moveTopRight({
+    required ViewportBasedRect original,
+    required ViewportBasedRect imageRect,
+    required Size viewportSize,
+    required double deltaX,
+    required double deltaY,
+    required double dotSize,
     double? aspectRatio,
-  ) {
-    final newTop =
-        min(max(original.top + deltaY, imageRect.top), original.bottom - 40);
-    final newRight =
-        max(min(original.right + deltaX, imageRect.right), original.left + 40);
+  }) {
+    double newTop = min(
+      max(original.top + deltaY, max(0, imageRect.top)),
+      original.bottom - dotSize,
+    );
+    double newRight = max(
+      min(original.right + deltaX, min(viewportSize.width, imageRect.right)),
+      original.left + dotSize,
+    );
     if (aspectRatio == null) {
       return Rect.fromLTRB(
         original.left,
@@ -151,17 +172,27 @@ abstract class Calculator {
   }
 
   /// calculates [ViewportBasedRect] of the result of user moving the bottom-left dot.
-  ViewportBasedRect moveBottomLeft(
-    ViewportBasedRect original,
-    double deltaX,
-    double deltaY,
-    ViewportBasedRect imageRect,
+  /// * [original] -> Crop Size
+  /// * [imageRect] -> Image Size
+  /// * [dotSize] -> Size of dot
+  /// * [aspectRatio] -> Maintain aspect ratio for crop rect
+  ViewportBasedRect moveBottomLeft({
+    required ViewportBasedRect original,
+    required ViewportBasedRect imageRect,
+    required Size viewportSize,
+    required double deltaX,
+    required double deltaY,
+    required double dotSize,
     double? aspectRatio,
-  ) {
-    final newLeft =
-        max(imageRect.left, min(original.left + deltaX, original.right - 40));
-    final newBottom =
-        max(min(original.bottom + deltaY, imageRect.bottom), original.top + 40);
+  }) {
+    double newLeft = max(
+      max(0, imageRect.left),
+      min(original.left + deltaX, original.right - dotSize),
+    );
+    double newBottom = max(
+      min(original.bottom + deltaY, min(imageRect.bottom, viewportSize.height)),
+      original.top + dotSize,
+    );
 
     if (aspectRatio == null) {
       return Rect.fromLTRB(
@@ -203,17 +234,28 @@ abstract class Calculator {
   }
 
   /// calculates [ViewportBasedRect] of the result of user moving the bottom-right dot.
-  ViewportBasedRect moveBottomRight(
-    ViewportBasedRect original,
-    double deltaX,
-    double deltaY,
-    ViewportBasedRect imageRect,
+  /// * [original] -> Crop Size
+  /// * [imageRect] -> Image Size
+  /// * [dotSize] -> Size of dot
+  /// * [aspectRatio] -> Maintain aspect ratio for crop rect
+  /// * [viewportSize] -> Size of preview and gesture area
+  ViewportBasedRect moveBottomRight({
+    required ViewportBasedRect original,
+    required double deltaX,
+    required double deltaY,
+    required double dotSize,
+    required ViewportBasedRect imageRect,
+    required Size viewportSize,
     double? aspectRatio,
-  ) {
-    final newRight =
-        min(imageRect.right, max(original.right + deltaX, original.left + 40));
-    final newBottom =
-        max(min(original.bottom + deltaY, imageRect.bottom), original.top + 40);
+  }) {
+    double newRight = min(
+      min(viewportSize.width, imageRect.right),
+      max(original.right + deltaX, original.left + dotSize),
+    );
+    double newBottom = max(
+      min(original.bottom + deltaY, min(viewportSize.height, imageRect.bottom)),
+      original.top + dotSize,
+    );
     if (aspectRatio == null) {
       return Rect.fromLTRB(
         original.left,
