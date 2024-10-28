@@ -1,24 +1,37 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math';
+
+import 'package:crop_image_module/cropping/helpers/extensions.dart';
+import 'package:crop_image_module/cropping/widget/calculator.dart';
+import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
 import 'package:crop_image_module/cropping/crop_controller.dart'
     as crop_control;
 import 'package:crop_image_module/cropping/crop_image.dart';
-import 'package:crop_image_module/cropping/helpers/enums.dart';
-import 'package:crop_image_module/cropping/helpers/extensions.dart';
-import 'package:crop_image_module/cropping/helpers/typedef.dart';
 import 'package:crop_image_module/cropping/logic/logic.dart';
 import 'package:crop_image_module/cropping/logic/shape.dart';
-import 'package:crop_image_module/cropping/widget/calculator.dart';
 import 'package:crop_image_module/cropping/widget/circle_crop_area_clipper.dart';
 import 'package:crop_image_module/cropping/widget/dot_control.dart';
-import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
 import 'package:crop_image_module/cropping/widget/rect_crop_area_clipper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; 
 
-const constDotTotalSize = 32.0; // fixed corner dot size.
+const DOT_TOTAL_SIZE = 32.0; // fixed corner dot size.
+
+typedef ViewportBasedRect = Rect;
+typedef ImageBasedRect = Rect;
+
+typedef WillUpdateScale = bool Function(double newScale);
+typedef CornerDotBuilder = Widget Function(
+    double size, EdgeAlignment edgeAlignment);
+
+typedef CroppingRectBuilder = ViewportBasedRect Function(
+  ViewportBasedRect viewportRect,
+  ViewportBasedRect imageRect,
+);
+
+enum CropStatus { nothing, loading, ready, cropping }
 
 /// Widget for the entry point of crop_your_image.
 class CropImage extends StatelessWidget {
@@ -173,16 +186,17 @@ class CropImage extends StatelessWidget {
     this.willUpdateScale,
     this.formatDetector = defaultFormatDetector,
     this.imageCropper = defaultImageCropper,
+    ImageParser? imageParser,
     this.scrollZoomSensitivity = 0.05,
     this.paddingHorizontal,
     this.paddingVertical,
     this.alwaysShowCropFrame = false,
-    this.dotTotalSize = constDotTotalSize,
+    this.dotTotalSize = DOT_TOTAL_SIZE,
     this.colorCropEdge,
     this.colorDivider,
   })  : assert((initialSize ?? 1.0) <= 1.0,
             'initialSize must be less than 1.0, or null meaning not specified.'),
-        imageParser = defaultImageParser;
+        this.imageParser = imageParser ?? defaultImageParser;
 
   @override
   Widget build(BuildContext context) {
@@ -220,11 +234,11 @@ class CropImage extends StatelessWidget {
             formatDetector: formatDetector,
             imageParser: imageParser,
             paddingHorizontal: paddingHorizontal ?? 30,
-            paddingVertical: paddingVertical ?? 30,
+            paddingVertical: paddingHorizontal ?? 30,
             dotSize: dotTotalSize,
             alwaysShowCropFrame: alwaysShowCropFrame,
-            colorCropEdge: colorCropEdge ?? Colors.blue,
-            colorDivider: colorDivider ?? Colors.white.withOpacity(0.5),
+            colorDivider: Colors.white.withOpacity(0.5),
+            colorCropEdge: colorCropEdge,
           ),
         );
       },
@@ -260,10 +274,14 @@ class _CropEditor extends StatefulWidget {
   final double scrollZoomSensitivity;
   final double paddingHorizontal;
   final double paddingVertical;
+
   final double dotSize;
+
   final bool alwaysShowCropFrame;
-  final Color colorCropEdge;
-  final Color colorDivider;
+
+  final Color? colorDivider;
+
+  final Color? colorCropEdge;
 
   const _CropEditor({
     super.key,
@@ -295,8 +313,8 @@ class _CropEditor extends StatefulWidget {
     required this.paddingVertical,
     required this.dotSize,
     required this.alwaysShowCropFrame,
-    required this.colorCropEdge,
-    required this.colorDivider,
+    this.colorCropEdge,
+    this.colorDivider,
   });
 
   @override
@@ -318,27 +336,28 @@ class _CropEditorState extends State<_CropEditor>
   /// Note that this is not the actual [Size] of the image.
   late ViewportBasedRect _imageRect;
 
+  /// for cropping editor
+  double? _aspectRatio;
+  bool _withCircleUi = false;
+  bool _isFitVertically = false;
+
   /// [ViewportBasedRect] of cropping area
   /// The result of cropping is based on this [_cropRect].
   late ViewportBasedRect _cropRect;
+
+  bool _showCropAreaOnly = true;
+
+  var _baseRect = Rect.zero;
+  var _baseImageRect = Rect.zero;
+  var finalImageRect = Rect.zero;
+  Offset _totalDistance = Offset.zero;
+
+  ImageFormat? _detectedFormat;
 
   late final AnimationController _toCenterAnimationController =
       AnimationController(vsync: this, duration: 250.ms);
 
   late Animation<Rect> _cropRectAnimation;
-
-  Rect _baseRect = Rect.zero;
-  Rect _baseImageRect = Rect.zero;
-  Rect finalImageRect = Rect.zero;
-  Offset _totalDistance = Offset.zero;
-
-  /// for cropping editor
-  double? _aspectRatio;
-  bool _withCircleUi = false;
-  bool _showCropAreaOnly = true;
-  bool _isFitVertically = false;
-
-  ImageFormat? _detectedFormat;
 
   /// temporary field to detect last computed.
   ImageParser? _lastParser;
@@ -346,15 +365,13 @@ class _CropEditorState extends State<_CropEditor>
   Uint8List? _lastImage;
   Future<ImageDetail?>? _lastComputed;
 
-  final GlobalKey _keyViewport = GlobalKey(debugLabel: "_keyViewport");
-
   // for zooming
   double _scale = 1.0;
   double _baseScale = 1.0;
+
   var count = 0;
   double startScale = 1;
 
-  // set functions
   set showCropAreaOnly(bool value) {
     _showCropAreaOnly = value;
   }
@@ -364,13 +381,11 @@ class _CropEditorState extends State<_CropEditor>
     widget.onMoved?.call(_cropRect);
   }
 
-  // get functions
-  double get dotTotalSize => widget.dotSize;
   bool get _isImageLoading => _lastComputed != null;
+
   Calculator get calculator => _isFitVertically
       ? const VerticalCalculator()
       : const HorizontalCalculator();
-
   @override
   void initState() {
     super.initState();
@@ -395,23 +410,11 @@ class _CropEditorState extends State<_CropEditor>
       ..onChangeArea = (newArea) {
         _resizeWith(_aspectRatio, newArea);
       };
-    WidgetsBinding.instance.addPostFrameCallback(
-      (timeStamp) {
-        if (mounted) {
-          _viewportSize = _keyViewport.currentContext!.size ?? Size.zero;
-          setState(() {});
-        }
-      },
-    );
   }
 
   @override
   void didChangeDependencies() {
-    Size? newViewportSize = _keyViewport.currentContext?.size;
-    if (newViewportSize != null) {
-      _viewportSize = newViewportSize;
-    }
-
+    _viewportSize = MediaQuery.of(context).size;
     // dev.log("crop didChangeDependencies");
     _parseImageWith(
       parser: widget.imageParser,
@@ -419,13 +422,6 @@ class _CropEditorState extends State<_CropEditor>
       image: widget.image,
     );
     super.didChangeDependencies();
-  }
-
-  @override
-  void dispose() {
-    _toCenterAnimationController.removeListener(_animateToCenterListener);
-    _toCenterAnimationController.dispose();
-    super.dispose();
   }
 
   void _endMoveDot(DragEndDetails details) {
@@ -640,7 +636,7 @@ class _CropEditorState extends State<_CropEditor>
 
       setState(() {});
       // dev.log("image Rect Scale = $scaleImageToImageRect");
-      dev.log("image rect: $_imageRect, scale: $_scale");
+      dev.log("_resizeWith image rect: $_imageRect, scale: $_scale");
       dev.log("crop rect: $_cropRect");
     }
   }
@@ -747,51 +743,31 @@ class _CropEditorState extends State<_CropEditor>
     });
   }
 
-  void _startPan(DragDownDetails details) {
-    showCropAreaOnly = false;
-    setState(() {});
-  }
-
-  void _endPan(DragEndDetails details) {
-    showCropAreaOnly = true;
-    setState(() {});
-  }
-
-  void _cancelPan() {
-    showCropAreaOnly = true;
-    setState(() {});
-  }
-
   void _animateToCenterListener() {
-    var offset = _cropRectAnimation.value.topLeft - _baseRect.topLeft;
-    var deltaScale = _cropRectAnimation.value.width / _baseRect.width;
-    var deltaScaleDy = _cropRectAnimation.value.height / _baseRect.height;
+    ///scale by width or by height nhu nhau
+    double deltaScale = _cropRectAnimation.value.width / _baseRect.width;
 
     ///Dung top left de translate nhung cropRect sau do co the thay doi width + height vi scale ra giua man hinh
-    cropRect = _baseRect
-        .translate(
-          offset.dx,
-          offset.dy,
-        )
-        .copyWith(
-          width: _cropRectAnimation.value.width,
-          height: _cropRectAnimation.value.height,
-        );
+    cropRect = _baseRect.copyWith(
+      left: _cropRectAnimation.value.left,
+      top: _cropRectAnimation.value.top,
+      width: _cropRectAnimation.value.width,
+      height: _cropRectAnimation.value.height,
+    );
 
-    dev.log("delta scale: ${deltaScaleDy - deltaScale}");
-
-    ///Neu crop Di chuyen ve giua + scale thay doi thi topleft thay doi 1 khoang bang offet * scale
-    ///Van phai update lai imagerect width va height de image rect sau khi thay doi dung voi scale
-    _imageRect = _baseImageRect
-        .translate(
-          offset.dx * deltaScale,
-          offset.dy * deltaScaleDy,
-        )
-        .copyWith(
-          width: _baseImageRect.width * deltaScale,
-          height: _baseImageRect.height * deltaScaleDy,
-        );
+    /// Image Rect thay doi theo cropRect. Vi tri tuong doi cua image rect va crop rect lay tu 2 bien _base roi nhan voi delta cua animation
+    _imageRect = _baseImageRect.copyWith(
+      left: _cropRectAnimation.value.left +
+          (_baseImageRect.left - _baseRect.left) * deltaScale,
+      top: _cropRectAnimation.value.top +
+          (_baseImageRect.top - _baseRect.top) * deltaScale,
+      width: _baseImageRect.width * deltaScale,
+      height: _baseImageRect.height * deltaScale,
+    );
     _scale = startScale * deltaScale;
+    // _imageRect = finalImageRect;
+    dev.log("delta scale: $deltaScale, scale: $_scale, _baseImageLeft");
+
     // dev.log("image rect: $_baseImageRect-> $_imageRect");
     if (_cropRectAnimation.isCompleted) {
       _cropRectAnimation.removeListener(_animateToCenterListener);
@@ -813,6 +789,21 @@ class _CropEditorState extends State<_CropEditor>
         0.0, 0.0, _parsedImageDetail!.width, _parsedImageDetail!.height));
     widget.onCropRect.call(rect, _cropRect, _imageRect);
     return rect;
+  }
+
+  void _startPan(DragDownDetails details) {
+    showCropAreaOnly = false;
+    setState(() {});
+  }
+
+  void _endPan(DragEndDetails details) {
+    showCropAreaOnly = true;
+    setState(() {});
+  }
+
+  void _cancelPan() {
+    showCropAreaOnly = true;
+    setState(() {});
   }
 
   /// crop given image with given area.
@@ -851,335 +842,315 @@ class _CropEditorState extends State<_CropEditor>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      key: _keyViewport,
-      child: _isImageLoading
-          ? Center(child: widget.progressIndicator)
-          : Stack(
-              clipBehavior: widget.clipBehavior,
-              children: [
-                /// Image
-                Listener(
-                  onPointerSignal: (signal) {
-                    if (signal is PointerScrollEvent) {
-                      if (signal.scrollDelta.dy > 0) {
-                        _applyScale(
-                          _scale - widget.scrollZoomSensitivity,
-                          focalPoint: signal.localPosition,
-                        );
-                      } else if (signal.scrollDelta.dy < 0) {
-                        _applyScale(
-                          _scale + widget.scrollZoomSensitivity,
-                          focalPoint: signal.localPosition,
-                        );
-                      }
-                      //print(_scale);
+    return _isImageLoading
+        ? Center(child: widget.progressIndicator)
+        : Stack(
+            clipBehavior: widget.clipBehavior,
+            children: [
+              /// Image
+              Listener(
+                onPointerSignal: (signal) {
+                  if (signal is PointerScrollEvent) {
+                    if (signal.scrollDelta.dy > 0) {
+                      _applyScale(
+                        _scale - widget.scrollZoomSensitivity,
+                        focalPoint: signal.localPosition,
+                      );
+                    } else if (signal.scrollDelta.dy < 0) {
+                      _applyScale(
+                        _scale + widget.scrollZoomSensitivity,
+                        focalPoint: signal.localPosition,
+                      );
                     }
+                    //print(_scale);
+                  }
+                },
+                child: GestureDetector(
+                  onScaleStart: widget.interactive ? _startScale : null,
+                  onScaleUpdate: widget.interactive ? _updateScale : null,
+                  onScaleEnd: (details) {
+                    showCropAreaOnly = true;
+                    dev.log("image rect: $_imageRect");
+                    setState(() {});
                   },
+                  child: Container(
+                    color: widget.baseColor,
+                    width: MediaQuery.of(context).size.width,
+                    height: MediaQuery.of(context).size.height,
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: _imageRect.left,
+                          top: _imageRect.top,
+                          child: Image.memory(
+                            widget.image,
+                            width: _isFitVertically
+                                ? null
+                                : MediaQuery.of(context).size.width * _scale,
+                            height: _isFitVertically
+                                ? MediaQuery.of(context).size.height * _scale
+                                : null,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              /// Mask
+              IgnorePointer(
+                child: ClipPath(
+                  clipper: _withCircleUi
+                      ? CircleCropAreaClipper(_cropRect)
+                      : CropAreaClipper(_cropRect, widget.radius),
+                  clipBehavior: Clip.antiAlias,
+                  child: AnimatedContainer(
+                    width: double.infinity,
+                    height: double.infinity,
+                    decoration: BoxDecoration(
+                      color: _showCropAreaOnly && widget.alwaysShowCropFrame
+                          ? widget.baseColor
+                          : widget.baseColor.withOpacity(0),
+                      // color: Colors.transparent,
+                    ),
+                    duration: 250.ms,
+                    curve: Curves.decelerate,
+                  ),
+                ),
+              ),
+              if (!widget.interactive && !widget.fixCropRect)
+                Positioned(
+                  left: _cropRect.left,
+                  top: _cropRect.top,
                   child: GestureDetector(
-                    onScaleStart: widget.interactive ? _startScale : null,
-                    onScaleUpdate: widget.interactive ? _updateScale : null,
-                    onScaleEnd: (details) {
-                      showCropAreaOnly = true;
-                      dev.log("image rect: $_imageRect");
-                      setState(() {});
+                    onPanUpdate: (details) {
+                      cropRect = calculator.moveRect(
+                        _cropRect,
+                        details.delta.dx,
+                        details.delta.dy,
+                        _imageRect,
+                      );
                     },
+                    onPanDown: _startPan,
+                    onPanEnd: _endPan,
+                    onPanCancel: _cancelPan,
                     child: Container(
-                      color: widget.baseColor,
-                      width: MediaQuery.of(context).size.width,
-                      height: MediaQuery.of(context).size.height,
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            left: _imageRect.left,
-                            top: _imageRect.top,
-                            child: Image.memory(
-                              widget.image,
-                              width: _isFitVertically
-                                  ? null
-                                  : MediaQuery.of(context).size.width * _scale,
-                              height: _isFitVertically
-                                  ? MediaQuery.of(context).size.height * _scale
-                                  : null,
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ],
-                      ),
+                      width: _cropRect.width,
+                      height: _cropRect.height,
+                      color: Colors.transparent,
                     ),
                   ),
                 ),
 
-                /// Mask
-                IgnorePointer(
-                  child: ClipPath(
-                    clipper: _withCircleUi
-                        ? CircleCropAreaClipper(_cropRect)
-                        : CropAreaClipper(_cropRect, widget.radius),
-                    clipBehavior: Clip.antiAlias,
-                    child: AnimatedContainer(
-                      width: double.infinity,
-                      height: double.infinity,
+              /// CONTAINER CROP VIEW
+              Positioned.fromRect(
+                rect: _cropRect,
+                child: AnimatedOpacity(
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                  duration: 300.ms,
+                  child: IgnorePointer(
+                    child: Container(
                       decoration: BoxDecoration(
-                        color: _showCropAreaOnly
-                            ? widget.baseColor
-                            : widget.baseColor.withOpacity(0),
-                        // color: Colors.transparent,
-                      ),
-                      duration: 250.ms,
-                      curve: Curves.decelerate,
-                    ),
-                  ),
-                ),
-
-                if (!widget.interactive && !widget.fixCropRect)
-                  Positioned(
-                    left: _cropRect.left,
-                    top: _cropRect.top,
-                    child: GestureDetector(
-                      onPanUpdate: (details) {
-                        cropRect = calculator.moveRect(
-                          _cropRect,
-                          details.delta.dx,
-                          details.delta.dy,
-                          _imageRect,
-                        );
-                      },
-                      onPanDown: _startPan,
-                      onPanEnd: _endPan,
-                      onPanCancel: _cancelPan,
-                      child: Container(
-                        width: _cropRect.width,
-                        height: _cropRect.height,
-                        color: Colors.transparent,
-                      ),
-                    ),
-                  ),
-
-                /// CONTAINER CROP VIEW
-                Positioned.fromRect(
-                  rect: _cropRect,
-                  child: AnimatedOpacity(
-                    opacity: _showCropAreaOnly && !widget.alwaysShowCropFrame
-                        ? 0
-                        : 1,
-                    duration: 300.ms,
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: widget.colorCropEdge,
-                            width: 1.66,
-                          ),
+                        border: Border.all(
+                          color: widget.colorCropEdge ?? Colors.red,
+                          width: 1.66,
                         ),
                       ),
                     ),
                   ),
                 ),
+              ),
 
-                /// DIVIDER
-                Positioned.fromRect(
-                  rect: _cropRect.copyWith(
-                    left: _cropRect.left + _cropRect.width / 3 - 0.5,
-                    width: 1,
-                  ),
-                  child: AnimatedOpacity(
-                    opacity: _showCropAreaOnly && !widget.alwaysShowCropFrame
-                        ? 0
-                        : 1,
-                    duration: 300.ms,
-                    child: IgnorePointer(
-                      child: Container(
-                        color: widget.colorDivider,
-                      ),
+              /// DIVIDERS
+              Positioned.fromRect(
+                rect: _cropRect.copyWith(
+                  left: _cropRect.left + _cropRect.width / 3 - 0.5,
+                  width: 1,
+                ),
+                child: AnimatedOpacity(
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                  duration: 300.ms,
+                  child: IgnorePointer(
+                    child: Container(
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
+              ),
 
-                /// DIVIDER
-                Positioned.fromRect(
-                  rect: _cropRect.copyWith(
-                    left: _cropRect.left + _cropRect.width * 2 / 3 - 0.5,
-                    width: 1,
-                  ),
-                  child: AnimatedOpacity(
-                    opacity: _showCropAreaOnly && !widget.alwaysShowCropFrame
-                        ? 0
-                        : 1,
-                    duration: 300.ms,
-                    child: IgnorePointer(
-                      child: Container(
-                        color: widget.colorDivider,
-                      ),
+              Positioned.fromRect(
+                rect: _cropRect.copyWith(
+                  left: _cropRect.left + _cropRect.width * 2 / 3 - 0.5,
+                  width: 1,
+                ),
+                child: AnimatedOpacity(
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                  duration: 300.ms,
+                  child: IgnorePointer(
+                    child: Container(
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
+              ),
 
-                /// DIVIDER
-                Positioned.fromRect(
-                  rect: _cropRect.copyWith(
-                    top: _cropRect.top + _cropRect.height / 3 - 0.5,
-                    height: 1,
-                  ),
-                  child: AnimatedOpacity(
-                    opacity: _showCropAreaOnly && !widget.alwaysShowCropFrame
-                        ? 0
-                        : 1,
-                    duration: 300.ms,
-                    child: IgnorePointer(
-                      child: Container(
-                        color: widget.colorDivider,
-                      ),
+              Positioned.fromRect(
+                rect: _cropRect.copyWith(
+                  top: _cropRect.top + _cropRect.height / 3 - 0.5,
+                  height: 1,
+                ),
+                child: AnimatedOpacity(
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                  duration: 300.ms,
+                  child: IgnorePointer(
+                    child: Container(
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
+              ),
 
-                /// DIVIDER
-                Positioned.fromRect(
-                  rect: _cropRect.copyWith(
-                    top: _cropRect.top + _cropRect.height * 2 / 3 - 0.5,
-                    height: 1,
-                  ),
-                  child: AnimatedOpacity(
-                    opacity: _showCropAreaOnly && !widget.alwaysShowCropFrame
-                        ? 0
-                        : 1,
-                    duration: 300.ms,
-                    child: IgnorePointer(
-                      child: Container(
-                        color: widget.colorDivider,
-                      ),
+              Positioned.fromRect(
+                rect: _cropRect.copyWith(
+                  top: _cropRect.top + _cropRect.height * 2 / 3 - 0.5,
+                  height: 1,
+                ),
+                child: AnimatedOpacity(
+                  opacity:
+                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                  duration: 300.ms,
+                  child: IgnorePointer(
+                    child: Container(
+                      color: widget.colorDivider,
                     ),
                   ),
                 ),
+              ),
+              
+              // EDGE
+              _leftCropGesture(),
+              _rightCropGesture(),
+              _topCropGesture(),
+              _bottomCropGesture(),
 
-                /// LEFT EDGE
-                _leftCropGesture(),
-
-                /// RIGHT EDGE
-                _rightCropGesture(),
-
-                /// TOP EDGE
-                _topCropGesture(),
-
-                /// BOTTOM EDGE
-                _bottomCropGesture(),
-
-                /// DOT TOP LEFT
-                Positioned(
-                  left: _cropRect.left - (dotTotalSize / 2),
-                  top: _cropRect.top - (dotTotalSize / 2),
-                  child: GestureDetector(
-                    onPanDown: _startPan,
-                    onPanCancel: _cancelPan,
-                    onPanUpdate: widget.fixCropRect
-                        ? null
-                        : (details) {
-                            showCropAreaOnly = false;
-                            var abc = _cropRect;
-                            cropRect = calculator.moveTopLeft(
-                              original: _cropRect,
-                              deltaX: details.delta.dx,
-                              deltaY: details.delta.dy,
-                              imageRect: _imageRect,
-                              dotSize: widget.dotSize,
-                              aspectRatio: _aspectRatio,
-                            );
-                            dev.log(
-                                "moveTopLeft original: ${abc}, imageRect: ${_imageRect}, cropRect: ${_cropRect}");
-                          },
-                    onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                    child: widget.cornerDotBuilder
-                            ?.call(dotTotalSize, EdgeAlignment.topLeft) ??
-                        const DotControl(),
-                  ),
+              /// DOT TOP LEFT
+              Positioned(
+                left: _cropRect.left - (widget.dotSize / 2) + 1,
+                top: _cropRect.top - (widget.dotSize / 2) + 1.5,
+                child: GestureDetector(
+                  onPanDown: _startPan,
+                  onPanCancel: _cancelPan,
+                  onPanUpdate: widget.fixCropRect
+                      ? null
+                      : (details) {
+                          showCropAreaOnly = false;
+                          cropRect = calculator.moveTopLeft(
+                            original: _cropRect,
+                            deltaX: details.delta.dx,
+                            deltaY: details.delta.dy,
+                            imageRect: _imageRect,
+                            aspectRatio: _aspectRatio,
+                            dotSize: widget.dotSize,
+                          );
+                        },
+                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                  child: widget.cornerDotBuilder
+                          ?.call(widget.dotSize, EdgeAlignment.topLeft) ??
+                      const DotControl(),
                 ),
+              ),
 
-                /// DOT TOP RIGHT
-                Positioned(
-                  left: _cropRect.right - (dotTotalSize / 2),
-                  top: _cropRect.top - (dotTotalSize / 2),
-                  child: GestureDetector(
-                    onPanDown: _startPan,
-                    onPanCancel: _cancelPan,
-                    onPanUpdate: widget.fixCropRect
-                        ? null
-                        : (details) {
-                            cropRect = calculator.moveTopRight(
-                              original: _cropRect,
-                              deltaX: details.delta.dx,
-                              deltaY: details.delta.dy,
-                              imageRect: _imageRect,
-                              dotSize: widget.dotSize,
-                              aspectRatio: _aspectRatio,
-                              viewportSize: _viewportSize,
-                            );
-                          },
-                    onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                    child: widget.cornerDotBuilder
-                            ?.call(dotTotalSize, EdgeAlignment.topRight) ??
-                        const DotControl(),
-                  ),
+              /// DOT TOP RIGHT
+              Positioned(
+                left: _cropRect.right - (widget.dotSize / 2) - 1,
+                top: _cropRect.top - (widget.dotSize / 2) + 1,
+                child: GestureDetector(
+                  onPanDown: _startPan,
+                  onPanCancel: _cancelPan,
+                  onPanUpdate: widget.fixCropRect
+                      ? null
+                      : (details) {
+                          cropRect = calculator.moveTopRight(
+                            original: _cropRect,
+                            deltaX: details.delta.dx,
+                            deltaY: details.delta.dy,
+                            imageRect: _imageRect,
+                            aspectRatio: _aspectRatio,
+                            dotSize: widget.dotSize,
+                            viewportSize: _viewportSize,
+                          );
+                        },
+                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                  child: widget.cornerDotBuilder
+                          ?.call(widget.dotSize, EdgeAlignment.topRight) ??
+                      const DotControl(),
                 ),
+              ),
 
-                /// DOT BOTTOM LEFT
-                Positioned(
-                  left: _cropRect.left - (dotTotalSize / 2),
-                  top: _cropRect.bottom - (dotTotalSize / 2),
-                  child: GestureDetector(
-                    onPanDown: _startPan,
-                    onPanCancel: _cancelPan,
-                    onPanUpdate: widget.fixCropRect
-                        ? null
-                        : (details) {
-                            showCropAreaOnly = false;
-                            cropRect = calculator.moveBottomLeft(
-                              original: _cropRect,
-                              deltaX: details.delta.dx,
-                              deltaY: details.delta.dy,
-                              imageRect: _imageRect,
-                              dotSize: widget.dotSize,
-                              viewportSize: _viewportSize,
-                              aspectRatio: _aspectRatio,
-                            );
-                          },
-                    onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                    child: widget.cornerDotBuilder
-                            ?.call(dotTotalSize, EdgeAlignment.bottomLeft) ??
-                        const DotControl(),
-                  ),
-                ),
+              /// DOT BOTTOM LEFT
+              Positioned(
+                left: _cropRect.left - (widget.dotSize / 2),
+                top: _cropRect.bottom - (widget.dotSize / 2) - 1,
+                child: GestureDetector(
+                  onPanDown: _startPan,
+                  onPanCancel: _cancelPan,
+                  onPanUpdate: widget.fixCropRect
+                      ? null
+                      : (details) {
+                          showCropAreaOnly = false;
 
-                /// DOT BOTTOM RIGHT
-                Positioned(
-                  left: _cropRect.right - (dotTotalSize / 2),
-                  top: _cropRect.bottom - (dotTotalSize / 2),
-                  child: GestureDetector(
-                    onPanDown: _startPan,
-                    onPanCancel: _cancelPan,
-                    onPanUpdate: widget.fixCropRect
-                        ? null
-                        : (details) {
-                            showCropAreaOnly = false;
-                            cropRect = calculator.moveBottomRight(
-                              original: _cropRect,
-                              deltaX: details.delta.dx,
-                              deltaY: details.delta.dy,
-                              imageRect: _imageRect,
-                              aspectRatio: _aspectRatio,
-                              dotSize: widget.dotSize,
-                              viewportSize: _viewportSize,
-                            );
-                          },
-                    onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                    child: widget.cornerDotBuilder
-                            ?.call(dotTotalSize, EdgeAlignment.bottomRight) ??
-                        const DotControl(),
-                  ),
+                          cropRect = calculator.moveBottomLeft(
+                            original: _cropRect,
+                            deltaX: details.delta.dx,
+                            deltaY: details.delta.dy,
+                            imageRect: _imageRect,
+                            aspectRatio: _aspectRatio,
+                            dotSize: widget.dotSize,
+                            viewportSize: _viewportSize,
+                          );
+                        },
+                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                  child: widget.cornerDotBuilder
+                          ?.call(widget.dotSize, EdgeAlignment.bottomLeft) ??
+                      const DotControl(),
                 ),
-              ],
-            ),
-    );
+              ),
+
+              /// DOT BOTTOM RIGHT
+              Positioned(
+                left: _cropRect.right - (widget.dotSize / 2) - 1,
+                top: _cropRect.bottom - (widget.dotSize / 2) - 1,
+                child: GestureDetector(
+                  onPanDown: _startPan,
+                  onPanCancel: _cancelPan,
+                  onPanUpdate: widget.fixCropRect
+                      ? null
+                      : (details) {
+                          showCropAreaOnly = false;
+                          cropRect = calculator.moveBottomRight(
+                            original: _cropRect,
+                            deltaX: details.delta.dx,
+                            deltaY: details.delta.dy,
+                            imageRect: _imageRect,
+                            aspectRatio: _aspectRatio,
+                            dotSize: widget.dotSize,
+                            viewportSize: _viewportSize,
+                          );
+                        },
+                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                  child: widget.cornerDotBuilder
+                          ?.call(widget.dotSize, EdgeAlignment.bottomRight) ??
+                      const DotControl(),
+                ),
+              ),
+            ],
+          );
   }
 
   Widget _leftCropGesture() {
@@ -1196,11 +1167,12 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveLeft(
-                  _cropRect,
-                  details.delta.dx,
-                  0,
-                  _imageRect,
-                  _aspectRatio,
+                  original: _cropRect,
+                  deltaX: details.delta.dx,
+                  deltaY: 0,
+                  imageRect: _imageRect,
+                  aspectRatio: _aspectRatio,
+                  dotSize: widget.dotSize,
                 );
               },
         onPanDown: _startPan,
@@ -1227,11 +1199,13 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveRight(
-                  _cropRect,
-                  details.delta.dx,
-                  0,
-                  _imageRect,
-                  _aspectRatio,
+                  original: _cropRect,
+                  deltaX: details.delta.dx,
+                  deltaY: 0,
+                  imageRect: _imageRect,
+                  aspectRatio: _aspectRatio,
+                  dotSize: widget.dotSize,
+                  viewportSize: _viewportSize,
                 );
               },
         onPanDown: _startPan,
@@ -1258,11 +1232,12 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveTop(
-                  _cropRect,
-                  0,
-                  details.delta.dy,
-                  _imageRect,
-                  _aspectRatio,
+                  original: _cropRect,
+                  deltaX: 0,
+                  deltaY: details.delta.dy,
+                  imageRect: _imageRect,
+                  aspectRatio: _aspectRatio,
+                  dotSize: widget.dotSize,
                 );
               },
         onPanDown: _startPan,
@@ -1289,11 +1264,13 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveBottom(
-                  _cropRect,
-                  0,
-                  details.delta.dy,
-                  _imageRect,
-                  _aspectRatio,
+                  original: _cropRect,
+                  deltaX: 0,
+                  deltaY: details.delta.dy,
+                  imageRect: _imageRect,
+                  aspectRatio: _aspectRatio,
+                  dotSize: widget.dotSize,
+                  viewportSize: _viewportSize,
                 );
               },
         onPanDown: _startPan,
