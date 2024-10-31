@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'dart:typed_data';
 
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
@@ -9,16 +10,25 @@ import 'image_parser.dart';
 
 /// Implementation of [ImageParser] using image package
 /// Parsed image is represented as [image.Image]
-final ImageParser<image.Image> imageImageParser = (data, {inputFormat}) {
-  late final image.Image? tempImage;
+// ignore: prefer_function_declarations_over_variables
+final ImageParser<image.Image> imageImageParser = (
+  Uint8List data, {
+  ImageFormat? inputFormat,
+}) {
+  image.Image? tempImage;
+  Stopwatch stopwatch = Stopwatch();
+  stopwatch.start();
   try {
     tempImage = _decodeWith(data, format: inputFormat);
   } on InvalidInputFormatError {
     rethrow;
   }
+  stopwatch.stop();
+  log("imageImageParser decode image log: ${stopwatch.elapsedMilliseconds}.ms");
 
   assert(tempImage != null);
 
+  stopwatch.start();
   // check orientation
   final parsed = switch (tempImage?.exif.exifIfd.orientation ?? -1) {
     3 => image.copyRotate(tempImage!, angle: 180),
@@ -26,6 +36,9 @@ final ImageParser<image.Image> imageImageParser = (data, {inputFormat}) {
     8 => image.copyRotate(tempImage!, angle: -90),
     _ => tempImage!,
   };
+
+  stopwatch.stop();
+  log("imageImageParser check orientation log: ${stopwatch.elapsedMilliseconds}.ms");
 
   return ImageDetail(
     image: parsed,
