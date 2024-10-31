@@ -980,7 +980,7 @@ class _CropEditorState extends State<_CropEditor>
                 ),
                 child: AnimatedOpacity(
                   opacity:
-                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                      _showCropAreaOnly ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
@@ -997,7 +997,7 @@ class _CropEditorState extends State<_CropEditor>
                 ),
                 child: AnimatedOpacity(
                   opacity:
-                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                      _showCropAreaOnly ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
@@ -1014,7 +1014,7 @@ class _CropEditorState extends State<_CropEditor>
                 ),
                 child: AnimatedOpacity(
                   opacity:
-                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                      _showCropAreaOnly ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
@@ -1031,7 +1031,7 @@ class _CropEditorState extends State<_CropEditor>
                 ),
                 child: AnimatedOpacity(
                   opacity:
-                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
+                      _showCropAreaOnly ? 0 : 1,
                   duration: 300.ms,
                   child: IgnorePointer(
                     child: Container(
