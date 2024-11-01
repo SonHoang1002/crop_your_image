@@ -1,6 +1,6 @@
 import 'dart:developer';
 import 'dart:typed_data';
-
+import 'dart:ui' as ui;
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
 import 'package:crop_image_module/cropping/logic/parser/errors.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
@@ -14,11 +14,13 @@ import 'image_parser.dart';
 final ImageParser<image.Image> imageImageParser = (
   Uint8List data, {
   ImageFormat? inputFormat,
+  ui.Image? uiImage
 }) {
   image.Image? tempImage;
   Stopwatch stopwatch = Stopwatch();
   stopwatch.start();
   try {
+      
     tempImage = _decodeWith(data, format: inputFormat);
   } on InvalidInputFormatError {
     rethrow;
