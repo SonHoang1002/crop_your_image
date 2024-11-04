@@ -841,7 +841,6 @@ class _CropEditorState extends State<_CropEditor>
       _cropRect.width * screenSizeRatio / _scale,
       _cropRect.height * screenSizeRatio / _scale,
     );
-    print("cropcropcrop: rect: $rect");
     ui.Image cropResult = await ImageImageCropperV2().crop(
       original: _parsedImageDetailV2!.image!,
       topLeft: rect.topLeft,
