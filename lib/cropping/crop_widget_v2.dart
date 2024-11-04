@@ -166,6 +166,9 @@ class CropImageV2 extends StatelessWidget {
     Rect imageScaledRect,
   )? onCropRectChange;
 
+  /// Callback is only called when complete init crop rect
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+
   CropImageV2({
     super.key,
     required this.imageData,
@@ -198,6 +201,7 @@ class CropImageV2 extends StatelessWidget {
     this.alwaysShowCropFrame = false,
     this.dotTotalSize = DOT_TOTAL_SIZE,
     this.colorCropEdge,
+    this.initCropRectCallBack,
   }) : assert((initialSize ?? 1.0) <= 1.0,
             'initialSize must be less than 1.0, or null meaning not specified.');
 
@@ -241,6 +245,7 @@ class CropImageV2 extends StatelessWidget {
             colorDivider: Colors.white.withOpacity(0.5),
             colorCropEdge: colorCropEdge,
             onCropRectChange: onCropRectChange,
+            initCropRectCallBack: initCropRectCallBack,
           ),
         );
       },
@@ -290,6 +295,8 @@ class _CropEditor extends StatefulWidget {
     ui.Rect imageScaledRect,
   )? onCropRectChange;
 
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+
   const _CropEditor({
     super.key,
     required this.imageData,
@@ -321,6 +328,7 @@ class _CropEditor extends StatefulWidget {
     this.colorCropEdge,
     this.colorDivider,
     this.onCropRectChange,
+    this.initCropRectCallBack,
   });
 
   @override
@@ -419,6 +427,7 @@ class _CropEditorState extends State<_CropEditor>
           image: _uiImageOriginal,
           imageData: widget.imageData,
         );
+        widget.initCropRectCallBack?.call(_cropRect);
         _isImageLoading = false;
         setState(() {});
       },
