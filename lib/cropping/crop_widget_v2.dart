@@ -1065,6 +1065,7 @@ class _CropEditorState extends State<_CropEditor>
                             aspectRatio: _aspectRatio,
                             dotSize: widget.dotSize,
                           );
+                          _onCropRectUpdate();
                         },
                   onPanEnd: widget.fixCropRect ? null : _endMoveDot,
                   child: widget.cornerDotBuilder
@@ -1092,6 +1093,7 @@ class _CropEditorState extends State<_CropEditor>
                             dotSize: widget.dotSize,
                             viewportSize: _viewportSize,
                           );
+                          _onCropRectUpdate();
                         },
                   onPanEnd: widget.fixCropRect ? null : _endMoveDot,
                   child: widget.cornerDotBuilder
@@ -1121,6 +1123,7 @@ class _CropEditorState extends State<_CropEditor>
                             dotSize: widget.dotSize,
                             viewportSize: _viewportSize,
                           );
+                          _onCropRectUpdate();
                         },
                   onPanEnd: widget.fixCropRect ? null : _endMoveDot,
                   child: widget.cornerDotBuilder
@@ -1149,6 +1152,7 @@ class _CropEditorState extends State<_CropEditor>
                             dotSize: widget.dotSize,
                             viewportSize: _viewportSize,
                           );
+                          _onCropRectUpdate();
                         },
                   onPanEnd: widget.fixCropRect ? null : _endMoveDot,
                   child: widget.cornerDotBuilder
