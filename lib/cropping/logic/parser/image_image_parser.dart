@@ -8,19 +8,28 @@ import 'package:image/image.dart' as image;
 
 import 'image_parser.dart';
 
+/// Implementation of [ImageParserV2] using image package
+/// Parsed image is represented as [ui.Image]
+// ignore: prefer_function_declarations_over_variables
+final ImageParserV2<ui.Image> imageImageParserV2 =
+    (uiImage, imageData, {inputFormat}) {
+  return ImageDetailV2(
+    image: uiImage,
+    imageData: imageData,
+    width: uiImage.width.toDouble(),
+    height: uiImage.height.toDouble(),
+  );
+};
+
 /// Implementation of [ImageParser] using image package
 /// Parsed image is represented as [image.Image]
 // ignore: prefer_function_declarations_over_variables
-final ImageParser<image.Image> imageImageParser = (
-  Uint8List data, {
-  ImageFormat? inputFormat,
-  ui.Image? uiImage
-}) {
+final ImageParser<image.Image> imageImageParser =
+    (Uint8List data, {ImageFormat? inputFormat, ui.Image? uiImage}) {
   image.Image? tempImage;
   Stopwatch stopwatch = Stopwatch();
   stopwatch.start();
   try {
-      
     tempImage = _decodeWith(data, format: inputFormat);
   } on InvalidInputFormatError {
     rethrow;

@@ -17,3 +17,15 @@ abstract class ImageCropper<T> {
     ImageShape shape,
   });
 }
+
+abstract class ImageCropperV2<T> {
+  const ImageCropperV2();
+
+  FutureOr<Image> call({
+    required T original,
+    required Offset topLeft,
+    required Offset bottomRight,
+    ImageFormat outputFormat,
+    ImageShape shape,
+  });
+}

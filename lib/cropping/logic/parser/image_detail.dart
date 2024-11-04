@@ -1,4 +1,4 @@
-import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 /// Image with detail information.
 class ImageDetail<T> {
@@ -16,14 +16,16 @@ class ImageDetail<T> {
   late final bool isPortrait = width < height;
 }
 
-class ImageDetailV2 {
+class ImageDetailV2<T> {
   ImageDetailV2({
-    this.image,
+    required this.image,
+    required this.imageData,
     required this.width,
     required this.height,
   });
 
-  final ui.Image? image;
+  final T image;
+  final Uint8List imageData;
   final double width;
   final double height;
 
