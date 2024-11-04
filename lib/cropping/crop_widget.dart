@@ -15,9 +15,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:crop_image_module/cropping/crop_controller.dart'
-    as crop_control; 
- 
-
+    as crop_control;
+    
 typedef ViewportBasedRect = Rect;
 typedef ImageBasedRect = Rect;
 
@@ -510,7 +509,7 @@ class _CropEditorState extends State<_CropEditor>
     _lastImage = image;
 
     final format = formatDetector?.call(image);
-   
+
     final future = compute(
       _parseFunc,
       [widget.imageParser, format, image],

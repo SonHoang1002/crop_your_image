@@ -3,14 +3,14 @@ import 'dart:developer' as dev;
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:crop_image_module/cropping/crop_controller.dart'
-    as crop_control; 
+    as crop_control;
 import 'package:crop_image_module/cropping/helpers/constants.dart';
 import 'package:crop_image_module/cropping/helpers/extensions.dart';
-import 'package:crop_image_module/cropping/logic/cropper/image_image_cropper.dart';  
+import 'package:crop_image_module/cropping/logic/cropper/image_image_cropper.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format_detector.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
-import 'package:crop_image_module/cropping/logic/parser/image_parser.dart'; 
+import 'package:crop_image_module/cropping/logic/parser/image_parser.dart';
 import 'package:crop_image_module/cropping/widget/calculator_v2.dart';
 import 'package:crop_image_module/cropping/widget/circle_crop_area_clipper.dart';
 import 'package:crop_image_module/cropping/widget/dot_control.dart';
@@ -38,9 +38,6 @@ enum CropStatus { nothing, loading, ready, cropping }
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
 class CropImageV2 extends StatelessWidget {
-  /// original image data
-  final ui.Image uiImage;
-
   final Uint8List imageData;
 
   /// callback when cropping completed
@@ -171,7 +168,6 @@ class CropImageV2 extends StatelessWidget {
 
   CropImageV2({
     super.key,
-    required this.uiImage,
     required this.imageData,
     required this.onCropped,
     required this.onCropRect,
@@ -216,7 +212,6 @@ class CropImageV2 extends StatelessWidget {
           data: newData,
           child: _CropEditor(
             key: key,
-            uiImage: uiImage,
             imageData: imageData,
             onCropped: onCropped,
             onCropRect: onCropRect,
@@ -254,7 +249,6 @@ class CropImageV2 extends StatelessWidget {
 }
 
 class _CropEditor extends StatefulWidget {
-  final ui.Image uiImage;
   final Uint8List imageData;
   final ValueChanged<ui.Image> onCropped;
   final void Function(Rect imageCropRect, Rect cropRect, Rect imageRect)
@@ -298,7 +292,6 @@ class _CropEditor extends StatefulWidget {
 
   const _CropEditor({
     super.key,
-    required this.uiImage,
     required this.imageData,
     required this.onCropped,
     required this.onCropRect,
@@ -358,7 +351,7 @@ class _CropEditorState extends State<_CropEditor>
   /// The result of cropping is based on this [_cropRect].
   late ViewportBasedRect _cropRect;
 
-  bool _showCropAreaOnly = true;
+  bool _showCropAreaOnly = true, _isImageLoading = true;
 
   var _baseRect = Rect.zero;
   var _baseImageRect = Rect.zero;
@@ -370,7 +363,9 @@ class _CropEditorState extends State<_CropEditor>
   late Animation<Rect> _cropRectAnimation;
 
   ui.Image? _lastImage;
-  Future<ImageDetailV2?>? _lastComputed;
+
+  late ui.Image _uiImageOriginal;
+
   ImageFormatV2? _detectedFormat;
 
   // for zooming
@@ -388,8 +383,6 @@ class _CropEditorState extends State<_CropEditor>
     setState(() => _cropRect = newRect);
     widget.onMoved?.call(_cropRect);
   }
-
-  bool get _isImageLoading => _lastComputed != null;
 
   CalculatorV2 get calculator => _isFitVertically
       ? const VerticalCalculatorV2()
@@ -420,7 +413,13 @@ class _CropEditorState extends State<_CropEditor>
         _resizeWith(_aspectRatio, newArea);
       };
     WidgetsBinding.instance.addPostFrameCallback(
-      (timeStamp) {
+      (timeStamp) async {
+        _uiImageOriginal = await decodeImageFromList(widget.imageData);
+        _parseImageWith(
+          image: _uiImageOriginal,
+          imageData: widget.imageData,
+        );
+        _isImageLoading = false;
         setState(() {});
       },
     );
@@ -430,10 +429,13 @@ class _CropEditorState extends State<_CropEditor>
   void didChangeDependencies() {
     _viewportSize = MediaQuery.of(context).size;
     dev.log("crop didChangeDependencies");
-    _parseImageWith(
-      image: widget.uiImage,
-      imageData: widget.imageData,
-    );
+    if (!_isImageLoading) {
+      _parseImageWith(
+        image: _uiImageOriginal,
+        imageData: widget.imageData,
+      );
+    }
+
     super.didChangeDependencies();
   }
 
@@ -485,7 +487,7 @@ class _CropEditorState extends State<_CropEditor>
     widget.onStatusChanged?.call(CropStatus.loading);
     dev.log("_resetImage");
     _parseImageWith(
-      image: widget.uiImage,
+      image: _uiImageOriginal,
       imageData: targetImageData,
     );
   }
@@ -511,8 +513,8 @@ class _CropEditorState extends State<_CropEditor>
       _parsedImageDetailV2 = ImageDetailV2(
         image: image,
         imageData: imageData,
-        width: widget.uiImage.width.toDouble(),
-        height: widget.uiImage.height.toDouble(),
+        width: _uiImageOriginal.width.toDouble(),
+        height: _uiImageOriginal.height.toDouble(),
       );
     });
     _resetCropRect();
@@ -891,7 +893,7 @@ class _CropEditorState extends State<_CropEditor>
                           left: _imageRect.left,
                           top: _imageRect.top,
                           child: RawImage(
-                            image: widget.uiImage,
+                            image: _uiImageOriginal,
                             width: _isFitVertically
                                 ? null
                                 : MediaQuery.of(context).size.width * _scale,
