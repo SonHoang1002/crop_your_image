@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math';
+import 'package:crop_image_module/cropping/helpers/constants.dart';
 import 'package:crop_image_module/cropping/helpers/extensions.dart';
 import 'package:crop_image_module/cropping/widget/calculator.dart';
 import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
@@ -14,11 +15,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:crop_image_module/cropping/crop_controller.dart'
-    as crop_control;
-// import 'package:resizephotos/a_test/fix_crop_image/crop_controller.dart'
-//     as crop_control;
-
-const DOT_TOTAL_SIZE = 32.0; // fixed corner dot size.
+    as crop_control; 
+ 
 
 typedef ViewportBasedRect = Rect;
 typedef ImageBasedRect = Rect;
