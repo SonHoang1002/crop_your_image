@@ -1,7 +1,7 @@
 import 'dart:typed_data';
-import 'package:crop_image_module/cropping/helpers/typedef.dart';
-import 'package:flutter/widgets.dart'; 
+import 'package:crop_image_module/cropping/crop_widget.dart';
 import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
 
 /// Controller to control crop actions.
 class CropController {
@@ -62,7 +62,6 @@ class CropControllerDelegate {
   late ValueChanged<ImageBasedRect> onChangeArea;
 }
 
-
 /// Controller ( Version 2 ) to control crop actions.
 class CropControllerV2 {
   late CropControllerDelegateV2 _delegate;
@@ -104,7 +103,7 @@ class CropControllerDelegateV2 {
   /// callback that [CropControllerV2.crop] is called.
   /// the meaning of the value is if cropping a image with circle shape.
   late Future<ui.Image> Function(bool value) onCrop;
-  
+
   late Rect Function() onCropRect;
 
   /// callback that [CropControllerV2.image] is set.
