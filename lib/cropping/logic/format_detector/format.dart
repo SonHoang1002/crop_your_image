@@ -6,3 +6,10 @@ enum ImageFormat {
   bmp,
   ico,
 }
+enum ImageFormatV2 {
+  png,
+  jpeg,
+  webp,
+  bmp,
+  ico,
+}

@@ -12,22 +12,22 @@ class CropAreaClipper extends CustomClipper<Path> {
     var rectPath = Path()..addRect(rect);
     var path = Path.combine(PathOperation.reverseDifference, rectPath, containerPath);
     return path;
-    return Path()
-      ..addPath(
-        Path()
-          ..moveTo(rect.left, rect.top + radius)
-          ..arcToPoint(Offset(rect.left + radius, rect.top), radius: Radius.circular(radius))
-          ..lineTo(rect.right - radius, rect.top)
-          ..arcToPoint(Offset(rect.right, rect.top + radius), radius: Radius.circular(radius))
-          ..lineTo(rect.right, rect.bottom - radius)
-          ..arcToPoint(Offset(rect.right - radius, rect.bottom), radius: Radius.circular(radius))
-          ..lineTo(rect.left + radius, rect.bottom)
-          ..arcToPoint(Offset(rect.left, rect.bottom - radius), radius: Radius.circular(radius))
-          ..close(),
-        Offset.zero,
-      )
-      ..addRect(Rect.fromLTWH(0.0, 0.0, size.width, size.height))
-      ..fillType = PathFillType.evenOdd;
+    // return Path()
+    //   ..addPath(
+    //     Path()
+    //       ..moveTo(rect.left, rect.top + radius)
+    //       ..arcToPoint(Offset(rect.left + radius, rect.top), radius: Radius.circular(radius))
+    //       ..lineTo(rect.right - radius, rect.top)
+    //       ..arcToPoint(Offset(rect.right, rect.top + radius), radius: Radius.circular(radius))
+    //       ..lineTo(rect.right, rect.bottom - radius)
+    //       ..arcToPoint(Offset(rect.right - radius, rect.bottom), radius: Radius.circular(radius))
+    //       ..lineTo(rect.left + radius, rect.bottom)
+    //       ..arcToPoint(Offset(rect.left, rect.bottom - radius), radius: Radius.circular(radius))
+    //       ..close(),
+    //     Offset.zero,
+    //   )
+    //   ..addRect(Rect.fromLTWH(0.0, 0.0, size.width, size.height))
+    //   ..fillType = PathFillType.evenOdd;
   }
 
   @override

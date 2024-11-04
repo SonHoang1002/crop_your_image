@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// Image with detail information.
 class ImageDetail<T> {
   ImageDetail({
@@ -7,6 +9,23 @@ class ImageDetail<T> {
   });
 
   final T image;
+  final double width;
+  final double height;
+
+  late final bool isLandscape = width >= height;
+  late final bool isPortrait = width < height;
+}
+
+class ImageDetailV2<T> {
+  ImageDetailV2({
+    required this.image,
+    required this.imageData,
+    required this.width,
+    required this.height,
+  });
+
+  final T image;
+  final Uint8List imageData;
   final double width;
   final double height;
 
