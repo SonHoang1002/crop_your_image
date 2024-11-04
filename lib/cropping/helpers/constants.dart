@@ -1,0 +1,1 @@
+const DOT_TOTAL_SIZE = 32.0; // fixed corner dot size.

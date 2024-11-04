@@ -1,5 +1,6 @@
+import 'dart:developer';
 import 'dart:typed_data';
-
+import 'dart:ui' as ui;
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
 import 'package:crop_image_module/cropping/logic/parser/errors.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
@@ -7,18 +8,38 @@ import 'package:image/image.dart' as image;
 
 import 'image_parser.dart';
 
+/// Implementation of [ImageParserV2] using image package
+/// Parsed image is represented as [ui.Image]
+// ignore: prefer_function_declarations_over_variables
+final ImageParserV2<ui.Image> imageImageParserV2 =
+    (uiImage, imageData, {inputFormat}) {
+  return ImageDetailV2(
+    image: uiImage,
+    imageData: imageData,
+    width: uiImage.width.toDouble(),
+    height: uiImage.height.toDouble(),
+  );
+};
+
 /// Implementation of [ImageParser] using image package
 /// Parsed image is represented as [image.Image]
-final ImageParser<image.Image> imageImageParser = (data, {inputFormat}) {
-  late final image.Image? tempImage;
+// ignore: prefer_function_declarations_over_variables
+final ImageParser<image.Image> imageImageParser =
+    (Uint8List data, {ImageFormat? inputFormat, ui.Image? uiImage}) {
+  image.Image? tempImage;
+  Stopwatch stopwatch = Stopwatch();
+  stopwatch.start();
   try {
     tempImage = _decodeWith(data, format: inputFormat);
   } on InvalidInputFormatError {
     rethrow;
   }
+  stopwatch.stop();
+  log("imageImageParser decode image log: ${stopwatch.elapsedMilliseconds}.ms");
 
   assert(tempImage != null);
 
+  stopwatch.start();
   // check orientation
   final parsed = switch (tempImage?.exif.exifIfd.orientation ?? -1) {
     3 => image.copyRotate(tempImage!, angle: 180),
@@ -26,6 +47,9 @@ final ImageParser<image.Image> imageImageParser = (data, {inputFormat}) {
     8 => image.copyRotate(tempImage!, angle: -90),
     _ => tempImage!,
   };
+
+  stopwatch.stop();
+  log("imageImageParser check orientation log: ${stopwatch.elapsedMilliseconds}.ms");
 
   return ImageDetail(
     image: parsed,

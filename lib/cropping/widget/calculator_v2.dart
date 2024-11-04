@@ -1,12 +1,13 @@
 import 'dart:developer' as dev;
 import 'dart:math';
-import 'package:crop_image_module/cropping/helpers/typedef.dart';
+import 'package:crop_image_module/cropping/crop_widget.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
 import 'package:flutter/widgets.dart';
 
 /// Calculation logics for various [Rect] data.
-abstract class Calculator {
-  const Calculator();
+
+abstract class CalculatorV2 {
+  const CalculatorV2();
 
   /// calculates [ViewportBasedRect] of image to fit the screenSize.
   ViewportBasedRect imageRect(Size screenSize, double imageAspectRatio);
@@ -19,7 +20,7 @@ abstract class Calculator {
   double scaleToCover(Size screenSize, ViewportBasedRect imageRect);
 
   /// calculates ratio of [targetImage] and [screenSize]
-  double screenSizeRatio(ImageDetail targetImage, Size screenSize);
+  double screenSizeRatio(ImageDetailV2 targetImage, Size screenSize);
 
   /// calculates [ViewportBasedRect] of the result of user moving the cropping area.
   ViewportBasedRect moveRect(
@@ -497,8 +498,8 @@ abstract class Calculator {
   }
 }
 
-class HorizontalCalculator extends Calculator {
-  const HorizontalCalculator();
+class HorizontalCalculatorV2 extends CalculatorV2 {
+  const HorizontalCalculatorV2();
 
   @override
   ViewportBasedRect imageRect(Size screenSize, double imageRatio) {
@@ -538,13 +539,13 @@ class HorizontalCalculator extends Calculator {
   }
 
   @override
-  double screenSizeRatio(ImageDetail targetImage, Size screenSize) {
+  double screenSizeRatio(ImageDetailV2 targetImage, Size screenSize) {
     return targetImage.width / screenSize.width;
   }
 }
 
-class VerticalCalculator extends Calculator {
-  const VerticalCalculator();
+class VerticalCalculatorV2 extends CalculatorV2 {
+  const VerticalCalculatorV2();
 
   @override
   ViewportBasedRect imageRect(Size screenSize, double imageRatio) {
@@ -583,7 +584,7 @@ class VerticalCalculator extends Calculator {
   }
 
   @override
-  double screenSizeRatio(ImageDetail targetImage, Size screenSize) {
+  double screenSizeRatio(ImageDetailV2 targetImage, Size screenSize) {
     return targetImage.height / screenSize.height;
   }
 }

@@ -1,4 +1,4 @@
-import 'package:crop_image_module/cropping/helpers/enums/typedef.dart';
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
 
 extension ViewportBasedRectExtension on ViewportBasedRect {
   ViewportBasedRect copyWith({
