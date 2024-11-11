@@ -3,14 +3,18 @@ import 'dart:developer' as dev;
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:crop_image_module/cropping/crop_controller.dart'
-    as crop_control; 
+    as crop_control;
 import 'package:crop_image_module/cropping/helpers/constants.dart';
+import 'package:crop_image_module/cropping/helpers/crop_helpers.dart';
+import 'package:crop_image_module/cropping/helpers/custom_value_notifier.dart';
+import 'package:crop_image_module/cropping/helpers/enums.dart';
 import 'package:crop_image_module/cropping/helpers/extensions.dart';
-import 'package:crop_image_module/cropping/logic/cropper/image_image_cropper.dart';  
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
+import 'package:crop_image_module/cropping/logic/cropper/image_image_cropper.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format_detector.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
-import 'package:crop_image_module/cropping/logic/parser/image_parser.dart'; 
+import 'package:crop_image_module/cropping/logic/parser/image_parser.dart';
 import 'package:crop_image_module/cropping/widget/calculator_v2.dart';
 import 'package:crop_image_module/cropping/widget/circle_crop_area_clipper.dart';
 import 'package:crop_image_module/cropping/widget/dot_control.dart';
@@ -21,26 +25,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-typedef ViewportBasedRect = Rect;
-typedef ImageBasedRect = Rect;
-
-typedef WillUpdateScale = bool Function(double newScale);
-typedef CornerDotBuilder = Widget Function(
-    double size, EdgeAlignment edgeAlignment);
-
-typedef CroppingRectBuilder = ViewportBasedRect Function(
-  ViewportBasedRect viewportRect,
-  ViewportBasedRect imageRect,
-);
-
-enum CropStatus { nothing, loading, ready, cropping }
-
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
 class CropImageV2 extends StatelessWidget {
-  /// original image data
-  final ui.Image uiImage;
-
   final Uint8List imageData;
 
   /// callback when cropping completed
@@ -99,9 +86,9 @@ class CropImageV2 extends StatelessWidget {
   final Color? maskColor;
 
   ///
-  /// note: Currently, the very first callback is [CropStatus.ready]
+  /// note: Currently, the very first callback is [EnumCropStatus.ready]
   /// which is called after loading [image] data for the first time.
-  final ValueChanged<CropStatus>? onStatusChanged;
+  final ValueChanged<EnumCropStatus>? onStatusChanged;
 
   /// [Color] of the mask widget which is placed over the cropping editor
   /// [Color] of the base color of the cropping editor.
@@ -166,12 +153,18 @@ class CropImageV2 extends StatelessWidget {
     Rect cropImageRect,
     Rect cropRect,
     Rect imageOriginalRect,
-    Rect imageScaledRect,
   )? onCropRectChange;
+
+  /// Callback is only called when complete init crop rect
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+  
+  /// State save current status of image
+  /// 
+  /// Default: Normal ( not rotate and not flip ( flip-x, flip-y ) )
+  final ExifStateMachine? exifStateMachine;
 
   CropImageV2({
     super.key,
-    required this.uiImage,
     required this.imageData,
     required this.onCropped,
     required this.onCropRect,
@@ -202,8 +195,12 @@ class CropImageV2 extends StatelessWidget {
     this.alwaysShowCropFrame = false,
     this.dotTotalSize = DOT_TOTAL_SIZE,
     this.colorCropEdge,
-  }) : assert((initialSize ?? 1.0) <= 1.0,
-            'initialSize must be less than 1.0, or null meaning not specified.');
+    this.initCropRectCallBack,
+    this.exifStateMachine,
+  }) {
+    assert((initialSize ?? 1.0) <= 1.0,
+        'initialSize must be less than 1.0, or null meaning not specified.');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +213,6 @@ class CropImageV2 extends StatelessWidget {
           data: newData,
           child: _CropEditor(
             key: key,
-            uiImage: uiImage,
             imageData: imageData,
             onCropped: onCropped,
             onCropRect: onCropRect,
@@ -246,6 +242,8 @@ class CropImageV2 extends StatelessWidget {
             colorDivider: Colors.white.withOpacity(0.5),
             colorCropEdge: colorCropEdge,
             onCropRectChange: onCropRectChange,
+            initCropRectCallBack: initCropRectCallBack,
+            exifStateMachine: exifStateMachine ?? ExifStateMachine.create(),
           ),
         );
       },
@@ -254,7 +252,6 @@ class CropImageV2 extends StatelessWidget {
 }
 
 class _CropEditor extends StatefulWidget {
-  final ui.Image uiImage;
   final Uint8List imageData;
   final ValueChanged<ui.Image> onCropped;
   final void Function(Rect imageCropRect, Rect cropRect, Rect imageRect)
@@ -266,7 +263,7 @@ class _CropEditor extends StatefulWidget {
   final bool withCircleUi;
   final crop_control.CropControllerV2? controller;
   final ValueChanged<ViewportBasedRect>? onMoved;
-  final ValueChanged<CropStatus>? onStatusChanged;
+  final ValueChanged<EnumCropStatus>? onStatusChanged;
   final Color? maskColor;
   final Color baseColor;
   final double radius;
@@ -293,12 +290,14 @@ class _CropEditor extends StatefulWidget {
     ui.Rect cropImageRect,
     ui.Rect cropRect,
     ui.Rect imageOriginalRect,
-    ui.Rect imageScaledRect,
   )? onCropRectChange;
+
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+
+  final ExifStateMachine exifStateMachine;
 
   const _CropEditor({
     super.key,
-    required this.uiImage,
     required this.imageData,
     required this.onCropped,
     required this.onCropRect,
@@ -325,9 +324,11 @@ class _CropEditor extends StatefulWidget {
     required this.paddingVertical,
     required this.dotSize,
     required this.alwaysShowCropFrame,
+    required this.exifStateMachine,
     this.colorCropEdge,
     this.colorDivider,
     this.onCropRectChange,
+    this.initCropRectCallBack,
   });
 
   @override
@@ -347,7 +348,9 @@ class _CropEditorState extends State<_CropEditor>
 
   /// [ViewportBasedRect] of displaying image
   /// Note that this is not the actual [Size] of the image.
-  late ViewportBasedRect _imageRect;
+  // late ViewportBasedRect _vImageRect.value;
+  final ValueNotifier<ViewportBasedRect> _vImageRect =
+      ValueNotifier(ViewportBasedRect.zero);
 
   /// for cropping editor
   double? _aspectRatio;
@@ -355,11 +358,16 @@ class _CropEditorState extends State<_CropEditor>
   bool _isFitVertically = false;
 
   /// [ViewportBasedRect] of cropping area
-  /// The result of cropping is based on this [_cropRect].
-  late ViewportBasedRect _cropRect;
+  /// The result of cropping is based on this [_vCropRect.value].
+  // late ViewportBasedRect _vCropRect.value;
 
-  bool _showCropAreaOnly = true;
+  final ValueNotifier<ViewportBasedRect> _vCropRect =
+      ValueNotifier(ViewportBasedRect.zero);
 
+  // bool _vShowCropAreaOnly.value = true;
+  bool _isImageLoading = true;
+
+  final ValueNotifier<bool> _vShowCropAreaOnly = ValueNotifier(true);
   var _baseRect = Rect.zero;
   var _baseImageRect = Rect.zero;
   var finalImageRect = Rect.zero;
@@ -370,7 +378,9 @@ class _CropEditorState extends State<_CropEditor>
   late Animation<Rect> _cropRectAnimation;
 
   ui.Image? _lastImage;
-  Future<ImageDetailV2?>? _lastComputed;
+
+  late ui.Image _uiImageOriginal;
+
   ImageFormatV2? _detectedFormat;
 
   // for zooming
@@ -381,15 +391,13 @@ class _CropEditorState extends State<_CropEditor>
   double startScale = 1;
 
   set showCropAreaOnly(bool value) {
-    _showCropAreaOnly = value;
+    _vShowCropAreaOnly.value = value;
   }
 
   set cropRect(ViewportBasedRect newRect) {
-    setState(() => _cropRect = newRect);
-    widget.onMoved?.call(_cropRect);
+    _vCropRect.value = newRect;
+    widget.onMoved?.call(newRect);
   }
-
-  bool get _isImageLoading => _lastComputed != null;
 
   CalculatorV2 get calculator => _isFitVertically
       ? const VerticalCalculatorV2()
@@ -405,23 +413,30 @@ class _CropEditorState extends State<_CropEditor>
       ..onCrop = _crop
       ..onCropRect = _cropTheRect
       ..onChangeAspectRatio = (aspectRatio) {
-        dev.log("on change aspect ratio");
+        dev.log("CropControllerDelegateV2 onChangeAspectRatio call");
         _resizeWith(aspectRatio, null);
       }
       ..onChangeWithCircleUi = (withCircleUi) {
+        dev.log("CropControllerDelegateV2 onChangeWithCircleUi call");
         _withCircleUi = withCircleUi;
         _resizeWith(null, null);
       }
-      ..onImageChanged = _resetImage
+      ..onImageChanged = (value) {
+        dev.log("CropControllerDelegateV2 onImageChanged call");
+        _resetImage(value);
+      }
       ..onChangeCropRect = (newCropRect) {
-        cropRect = calculator.correct(newCropRect, _imageRect);
+        dev.log("CropControllerDelegateV2 onChangeCropRect call");
+        cropRect = calculator.correct(newCropRect, _vImageRect.value);
       }
       ..onChangeArea = (newArea) {
+        dev.log("CropControllerDelegateV2 onChangeArea call");
         _resizeWith(_aspectRatio, newArea);
       };
     WidgetsBinding.instance.addPostFrameCallback(
-      (timeStamp) {
-        setState(() {});
+      (timeStamp) async {
+        // _uiImageOriginal = await decodeImageFromList(widget.imageData);
+        _handleInitPostFrame();
       },
     );
   }
@@ -430,11 +445,21 @@ class _CropEditorState extends State<_CropEditor>
   void didChangeDependencies() {
     _viewportSize = MediaQuery.of(context).size;
     dev.log("crop didChangeDependencies");
-    _parseImageWith(
-      image: widget.uiImage,
-      imageData: widget.imageData,
-    );
+    if (!_isImageLoading) {
+      _parseImageWith(
+        image: _uiImageOriginal,
+        imageData: widget.imageData,
+      );
+      setState(() {});
+    }
     super.didChangeDependencies();
+  }
+
+  Future<ui.Image> _handleInitUiImage(Uint8List imageData) async {
+    return CropImageHelpers.handleInitUiImageWithTransform(
+      imageData: imageData,
+      exifStateMachine: widget.exifStateMachine,
+    );
   }
 
   void _endMoveDot(DragEndDetails details) {
@@ -444,10 +469,11 @@ class _CropEditorState extends State<_CropEditor>
 
   void _movingToCenter() {
     Size viewPortSizeWithPadding = Size(
-        _viewportSize.width - widget.paddingHorizontal * 2,
-        _viewportSize.height - widget.paddingVertical * 2);
+      _viewportSize.width - widget.paddingHorizontal * 2,
+      _viewportSize.height - widget.paddingVertical * 2,
+    );
     double viewportAspectRatio = viewPortSizeWithPadding.aspectRatio;
-    double cropRectAspectRatio = _cropRect.size.aspectRatio;
+    double cropRectAspectRatio = _vCropRect.value.size.aspectRatio;
     Size finalCropSize = Size.zero;
     if (cropRectAspectRatio > viewportAspectRatio) {
       finalCropSize = Size(viewPortSizeWithPadding.width,
@@ -460,14 +486,14 @@ class _CropEditorState extends State<_CropEditor>
 
     Rect centerCropRect = Rect.fromCenter(
       center: _viewportSize.center(Offset.zero),
-      // width: _cropRect.width,
-      // height: _cropRect.height,
+      // width: _vCropRect.value.width,
+      // height: _vCropRect.value.height,
       width: finalCropSize.width,
       height: finalCropSize.height,
     );
-    _baseRect = _cropRect;
-    _baseImageRect = _imageRect;
-    dev.log("image rect: $_imageRect");
+    _baseRect = _vCropRect.value;
+    _baseImageRect = _vImageRect.value;
+    dev.log("image rect: $_vImageRect.value");
     dev.log("image rect: $_baseRect");
     startScale = _scale;
     _cropRectAnimation = RectTween(begin: _baseRect, end: centerCropRect)
@@ -477,17 +503,31 @@ class _CropEditorState extends State<_CropEditor>
     _toCenterAnimationController.forward(from: 0);
     count += 1;
     showCropAreaOnly = true;
-    setState(() {});
   }
 
   /// reset image to be cropped
-  void _resetImage(Uint8List targetImageData) {
-    widget.onStatusChanged?.call(CropStatus.loading);
-    dev.log("_resetImage");
+  void _resetImage(Uint8List targetImageData) async {
+    widget.onStatusChanged?.call(EnumCropStatus.loading);
+    _handleInitPostFrame();
+  }
+
+  void _handleInitPostFrame() async {
+    _uiImageOriginal = await _handleInitUiImage(widget.imageData);
+
     _parseImageWith(
-      image: widget.uiImage,
-      imageData: targetImageData,
+      image: _uiImageOriginal,
+      imageData: widget.imageData,
     );
+
+    widget.initCropRectCallBack?.call(_vCropRect.value);
+
+    // _uiImageOriginal = await CropImageHelpers.scaleDown(
+    //   uiImageOriginal: _uiImageOriginal,
+    //   exifStateMachine: widget.exifStateMachine,
+    // );
+
+    _isImageLoading = false;
+    setState(() {});
   }
 
   void _parseImageWith({
@@ -507,16 +547,15 @@ class _CropEditorState extends State<_CropEditor>
       return;
     }
 
-    setState(() {
-      _parsedImageDetailV2 = ImageDetailV2(
-        image: image,
-        imageData: imageData,
-        width: widget.uiImage.width.toDouble(),
-        height: widget.uiImage.height.toDouble(),
-      );
-    });
+    _parsedImageDetailV2 = ImageDetailV2(
+      image: image,
+      imageData: imageData,
+      width: _uiImageOriginal.width.toDouble(),
+      height: _uiImageOriginal.height.toDouble(),
+    );
+
     _resetCropRect();
-    widget.onStatusChanged?.call(CropStatus.ready);
+    widget.onStatusChanged?.call(EnumCropStatus.ready);
   }
 
   /// reset [ViewportBasedRect] of crop rect with current state
@@ -527,7 +566,7 @@ class _CropEditorState extends State<_CropEditor>
         _parsedImageDetailV2!.width / _parsedImageDetailV2!.height;
     _isFitVertically = imageAspectRatio < screenSize.aspectRatio;
 
-    _imageRect = calculator.imageRect(screenSize, imageAspectRatio);
+    _vImageRect.value = calculator.imageRect(screenSize, imageAspectRatio);
 
     if (widget.initialRectBuilder != null) {
       dev.log("_resetCropRect, widget.initialRectBuilder");
@@ -538,12 +577,49 @@ class _CropEditorState extends State<_CropEditor>
           screenSize.width,
           screenSize.height,
         ),
-        _imageRect,
+        _vImageRect.value,
       );
     } else {
-      dev.log(
-          "_resetCropRect _resizeWith : ${widget.aspectRatio}, image base initial area ${widget.initialArea}");
-      _resizeWith(widget.aspectRatio, widget.initialArea);
+      Rect? initialRect = widget.initialArea;
+
+      if (initialRect != null) {
+        initialRect = widget.initialArea!;
+        var transformedImageRect = Rect.fromLTWH(
+            0, 0, _parsedImageDetailV2!.width, _parsedImageDetailV2!.height);
+
+        var tempTransfromMatrix = widget
+            .exifStateMachine.currentResizeOrientation
+            .getTransformByCenter();
+
+        var tempOriginalRect = MatrixUtils.inverseTransformRect(
+            tempTransfromMatrix, transformedImageRect);
+        var originalImageSize =
+            Size(tempOriginalRect.width, tempOriginalRect.height);
+        var originalImageRect = Rect.fromLTWH(
+            0, 0, originalImageSize.width, originalImageSize.height);
+
+        var transformMatrix = widget.exifStateMachine.currentResizeOrientation
+            .getTransformByCenter(
+          origin: Offset(
+            originalImageSize.width / 2,
+            originalImageSize.height / 2,
+          ),
+        );
+        dev.log("_cropTheRect transformMatrix = ${transformMatrix.storage}");
+        var transformRect =
+            MatrixUtils.transformRect(transformMatrix, widget.initialArea!);
+        var transformImage =
+            MatrixUtils.transformRect(transformMatrix, originalImageRect);
+        transformRect =
+            transformRect.translate(-transformImage.left, -transformImage.top);
+        initialRect = transformRect;
+      }
+
+      _resizeWith(
+        widget.aspectRatio,
+        initialRect,
+      );
+
       if (widget.initialArea != null) {
         return;
       }
@@ -553,7 +629,7 @@ class _CropEditorState extends State<_CropEditor>
       /// Sẽ scale sao cho ảnh sẽ bị cover về crop Rect. Trước khi gọi scale duới cần set vị trí cropRect trước
       /// Lấy Rect theo _viewportSize vì ảnh ở scale =1 sẽ cover viewport -> scale viewport về cover trong crop rect = scale ảnh về cover trong crop rect
       var initialScale = calculator.scaleToCover(
-        _cropRect.size,
+        _vCropRect.value.size,
 
         /// Rect ảnh sẽ fit cover
         Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height),
@@ -570,16 +646,16 @@ class _CropEditorState extends State<_CropEditor>
   void _resizeWith(double? aspectRatio, ImageBasedRect? area) {
     dev.log("_resize with $aspectRatio, $area");
     _aspectRatio = _withCircleUi ? 1 : aspectRatio;
+
     if (area == null) {
       cropRect = calculator.initialCropRect(
         _viewportSize,
         Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height),
-        // _imageRect,
         _aspectRatio ??
             _parsedImageDetailV2!.width / _parsedImageDetailV2!.height,
         widget.initialSize ?? 1,
       );
-      var scale = calculator.scaleToCover(_cropRect.size,
+      var scale = calculator.scaleToCover(_vCropRect.value.size,
           Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height));
       dev.log("init scale: $scale");
       _applyScale(1 / _scale);
@@ -589,22 +665,16 @@ class _CropEditorState extends State<_CropEditor>
       cropRect = calculator.initialCropRect(
         _viewportSize,
         Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height),
-        _aspectRatio ??
-            widget.initialArea?.size.aspectRatio ??
-            _parsedImageDetailV2!.width / _parsedImageDetailV2!.height,
+        _aspectRatio ?? area.size.aspectRatio,
         widget.initialSize ?? 1,
       );
-      _imageRect = calculator.imageRect(_viewportSize,
+      _vImageRect.value = calculator.imageRect(_viewportSize,
           _parsedImageDetailV2!.width / _parsedImageDetailV2!.height);
 
       ///SCALE ẢNH CHO khop voi crop
       var initialScale = calculator.scaleToCover(
-        _cropRect.size,
-
-        /// Rect ảnh sẽ fit cover
+        _vCropRect.value.size,
         Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height),
-
-        /// Ảnh
       );
       _applyScale(1 / _scale);
       _applyScale(initialScale);
@@ -612,63 +682,58 @@ class _CropEditorState extends State<_CropEditor>
       /// done SCALE ẢNH CHO khop voi crop
 
       dev.log(
-          "image: ${_parsedImageDetailV2?.width}, ${_parsedImageDetailV2?.height}");
+          " _resizeWith image: ${_parsedImageDetailV2?.width}, ${_parsedImageDetailV2?.height}");
 
-      double scaleImageCropAreaToImage = _cropRect.width / _cropRect.height >
-              _parsedImageDetailV2!.width / _parsedImageDetailV2!.height
-          ? _parsedImageDetailV2!.width / area.width
-          : _parsedImageDetailV2!.height / area.height;
-      dev.log("scaleImageCropAreaToImage: $scaleImageCropAreaToImage");
+      double scaleImageCropAreaToImage =
+          _vCropRect.value.width / _vCropRect.value.height >
+                  _parsedImageDetailV2!.width / _parsedImageDetailV2!.height
+              ? _parsedImageDetailV2!.width / area.width
+              : _parsedImageDetailV2!.height / area.height;
+      dev.log(
+          "_resizeWith scaleImageCropAreaToImage: $scaleImageCropAreaToImage");
       _applyScale(scaleImageCropAreaToImage * _scale);
-      var scaleImageToImageRect = _cropRect.width / _cropRect.height >
-              _parsedImageDetailV2!.width / _parsedImageDetailV2!.height
-          ? _parsedImageDetailV2!.width / _imageRect.width
-          : _parsedImageDetailV2!.height / _imageRect.height;
-
+      var scaleImageToImageRect =
+          _vCropRect.value.width / _vCropRect.value.height >
+                  _parsedImageDetailV2!.width / _parsedImageDetailV2!.height
+              ? _parsedImageDetailV2!.width / _vImageRect.value.width
+              : _parsedImageDetailV2!.height / _vImageRect.value.height;
       var cropTopLeft = area.topLeft / scaleImageToImageRect;
-
       var offsetTranslation =
-          _cropRect.topLeft - cropTopLeft - _imageRect.topLeft;
-      _imageRect =
-          _imageRect.translate(offsetTranslation.dx, offsetTranslation.dy);
-
-      setState(() {});
-      // dev.log("image Rect Scale = $scaleImageToImageRect");
-      dev.log("_resizeWith image rect: $_imageRect, scale: $_scale");
-      dev.log("crop rect: $_cropRect");
+          _vCropRect.value.topLeft - cropTopLeft - _vImageRect.value.topLeft;
+      _vImageRect.value = _vImageRect.value.translate(
+        offsetTranslation.dx,
+        offsetTranslation.dy,
+      );
+      dev.log("_resizeWith crop rect: ${_vCropRect.value}");
     }
   }
 
   void _startScale(ScaleStartDetails detail) {
     _baseScale = _scale;
     showCropAreaOnly = false;
-    setState(() {});
   }
 
   void _updateScale(ScaleUpdateDetails detail) {
     // move
-    var movedLeft = _imageRect.left + detail.focalPointDelta.dx;
+    var movedLeft = _vImageRect.value.left + detail.focalPointDelta.dx;
     dev.log(
-        "_updateScale movedLeft: $movedLeft, ${movedLeft + _imageRect.width}, ${_cropRect.right}");
-    if (movedLeft + _imageRect.width < _cropRect.right) {
-      movedLeft = _cropRect.right - _imageRect.width;
+        "_updateScale movedLeft: $movedLeft, ${movedLeft + _vImageRect.value.width}, ${_vCropRect.value.right}");
+    if (movedLeft + _vImageRect.value.width < _vCropRect.value.right) {
+      movedLeft = _vCropRect.value.right - _vImageRect.value.width;
     }
 
-    var movedTop = _imageRect.top + detail.focalPointDelta.dy;
-    if (movedTop + _imageRect.height < _cropRect.bottom) {
-      movedTop = _cropRect.bottom - _imageRect.height;
+    var movedTop = _vImageRect.value.top + detail.focalPointDelta.dy;
+    if (movedTop + _vImageRect.value.height < _vCropRect.value.bottom) {
+      movedTop = _vCropRect.value.bottom - _vImageRect.value.height;
     }
-    setState(() {
-      _imageRect = ViewportBasedRect.fromLTWH(
-        min(_cropRect.left, movedLeft),
-        min(_cropRect.top, movedTop),
-        _imageRect.width,
-        _imageRect.height,
-      );
-    });
+    _vImageRect.value = ViewportBasedRect.fromLTWH(
+      min(_vCropRect.value.left, movedLeft),
+      min(_vCropRect.value.top, movedTop),
+      _vImageRect.value.width,
+      _vImageRect.value.height,
+    );
 
     showCropAreaOnly = false;
-    setState(() {});
     _applyScale(
       _baseScale * detail.scale,
       focalPoint: detail.localFocalPoint,
@@ -678,8 +743,7 @@ class _CropEditorState extends State<_CropEditor>
 
   void _endScale(ScaleEndDetails details) {
     showCropAreaOnly = true;
-    dev.log("image rect: $_imageRect");
-    setState(() {});
+    dev.log("image rect: $_vImageRect.value");
     _onCropRectEnd();
   }
 
@@ -707,7 +771,8 @@ class _CropEditorState extends State<_CropEditor>
     // clamp the scale
     nextScale = max(
       nextScale,
-      max(_cropRect.width / baseWidth, _cropRect.height / baseHeight),
+      max(_vCropRect.value.width / baseWidth,
+          _vCropRect.value.height / baseHeight),
     );
 
     if (_scale == nextScale) {
@@ -718,46 +783,46 @@ class _CropEditorState extends State<_CropEditor>
     final newWidth = baseWidth * nextScale;
     final horizontalFocalPointBias = focalPoint == null
         ? 0.5
-        : (focalPoint.dx - _imageRect.left) / _imageRect.width;
+        : (focalPoint.dx - _vImageRect.value.left) / _vImageRect.value.width;
     final leftPositionDelta =
-        (newWidth - _imageRect.width) * horizontalFocalPointBias;
+        (newWidth - _vImageRect.value.width) * horizontalFocalPointBias;
 
     // height
     final newHeight = baseHeight * nextScale;
     final verticalFocalPointBias = focalPoint == null
         ? 0.5
-        : (focalPoint.dy - _imageRect.top) / _imageRect.height;
+        : (focalPoint.dy - _vImageRect.value.top) / _vImageRect.value.height;
     final topPositionDelta =
-        (newHeight - _imageRect.height) * verticalFocalPointBias;
+        (newHeight - _vImageRect.value.height) * verticalFocalPointBias;
 
     // position
     final newLeft = max(
-        min(_cropRect.left, _imageRect.left - leftPositionDelta),
-        _cropRect.right - newWidth);
-    final newTop = max(min(_cropRect.top, _imageRect.top - topPositionDelta),
-        _cropRect.bottom - newHeight);
+        min(_vCropRect.value.left, _vImageRect.value.left - leftPositionDelta),
+        _vCropRect.value.right - newWidth);
+    final newTop = max(
+        min(_vCropRect.value.top, _vImageRect.value.top - topPositionDelta),
+        _vCropRect.value.bottom - newHeight);
 
     // apply
-    setState(() {
-      _imageRect = Rect.fromLTRB(
-        newLeft,
-        newTop,
-        newLeft + newWidth,
-        newTop + newHeight,
-      );
-      _scale = nextScale;
-    });
+    _vImageRect.value = Rect.fromLTRB(
+      newLeft,
+      newTop,
+      newLeft + newWidth,
+      newTop + newHeight,
+    );
+    _scale = nextScale;
   }
 
   void _onCropRectEnd() {
     Rect cropImageRect = _cropTheRect();
-    widget.onCropRect.call(cropImageRect, _cropRect, _imageRect);
+    widget.onCropRect.call(cropImageRect, _vCropRect.value, _vImageRect.value);
   }
 
   void _onCropRectUpdate() {
     Rect cropImageRect = _cropTheRect();
+
     widget.onCropRectChange
-        ?.call(cropImageRect, _cropRect, _imageRect, _imageRect);
+        ?.call(cropImageRect, _vCropRect.value, _vImageRect.value);
   }
 
   void _animateToCenterListener() {
@@ -773,7 +838,7 @@ class _CropEditorState extends State<_CropEditor>
     );
 
     /// Image Rect thay doi theo cropRect. Vi tri tuong doi cua image rect va crop rect lay tu 2 bien _base roi nhan voi delta cua animation
-    _imageRect = _baseImageRect.copyWith(
+    _vImageRect.value = _baseImageRect.copyWith(
       left: _cropRectAnimation.value.left +
           (_baseImageRect.left - _baseRect.left) * deltaScale,
       top: _cropRectAnimation.value.top +
@@ -782,10 +847,10 @@ class _CropEditorState extends State<_CropEditor>
       height: _baseImageRect.height * deltaScale,
     );
     _scale = startScale * deltaScale;
-    // _imageRect = finalImageRect;
+    // _vImageRect.value = finalImageRect;
     dev.log("delta scale: $deltaScale, scale: $_scale, _baseImageLeft");
 
-    // dev.log("image rect: $_baseImageRect-> $_imageRect");
+    // dev.log("image rect: $_baseImageRect-> $_vImageRect.value");
     if (_cropRectAnimation.isCompleted) {
       _cropRectAnimation.removeListener(_animateToCenterListener);
     }
@@ -796,35 +861,57 @@ class _CropEditorState extends State<_CropEditor>
       _parsedImageDetailV2!,
       _viewportSize,
     );
+
     Rect rect = Rect.fromLTWH(
-      (_cropRect.left - _imageRect.left) * screenSizeRatio / _scale,
-      (_cropRect.top - _imageRect.top) * screenSizeRatio / _scale,
-      _cropRect.width * screenSizeRatio / _scale,
-      _cropRect.height * screenSizeRatio / _scale,
+      (_vCropRect.value.left - _vImageRect.value.left) *
+          screenSizeRatio /
+          _scale,
+      (_vCropRect.value.top - _vImageRect.value.top) * screenSizeRatio / _scale,
+      _vCropRect.value.width * screenSizeRatio / _scale,
+      _vCropRect.value.height * screenSizeRatio / _scale,
     );
+
     rect = rect.intersect(Rect.fromLTWH(
         0.0, 0.0, _parsedImageDetailV2!.width, _parsedImageDetailV2!.height));
-    return rect;
+
+    // reverse crop image rectangle
+
+    if (widget.exifStateMachine.isNormal) {
+      return rect;
+    }
+    Matrix4 matrix = widget.exifStateMachine.currentResizeOrientation
+        .getTransformByCenter(origin: rect.center);
+    Rect reverseRect = MatrixUtils.inverseTransformRect(
+      matrix,
+      rect,
+    );
+
+    var offsetImageAfterRotate = Offset.zero;
+    var currentImageRect = Rect.fromLTWH(
+        0, 0, _parsedImageDetailV2!.width, _parsedImageDetailV2!.height);
+    var originalRectangle =
+        MatrixUtils.inverseTransformRect(matrix, currentImageRect);
+    offsetImageAfterRotate = originalRectangle.topLeft;
+    reverseRect = reverseRect.translate(
+        -offsetImageAfterRotate.dx, -offsetImageAfterRotate.dy);
+    return reverseRect;
   }
 
   void _startPan(DragDownDetails details) {
     showCropAreaOnly = false;
-    setState(() {});
   }
 
   void _endPan(DragEndDetails details) {
     showCropAreaOnly = true;
-    setState(() {});
     _onCropRectEnd();
   }
 
   void _cancelPan() {
     showCropAreaOnly = true;
-    setState(() {});
   }
 
   /// crop given image with given area.
-  Future<ui.Image> _crop(bool withCircleShape) async {
+  Future<ui.Image> _crop(bool withCircleShape, bool isWithoutTransform) async {
     assert(_parsedImageDetailV2 != null);
 
     final screenSizeRatio = calculator.screenSizeRatio(
@@ -832,23 +919,33 @@ class _CropEditorState extends State<_CropEditor>
       _viewportSize,
     );
 
-    widget.onStatusChanged?.call(CropStatus.cropping);
+    widget.onStatusChanged?.call(EnumCropStatus.cropping);
 
     Rect rect = Rect.fromLTWH(
-      max((_cropRect.left - _imageRect.left) * screenSizeRatio / _scale, 0.0),
-      max((_cropRect.top - _imageRect.top) * screenSizeRatio / _scale, 0.0),
-      _cropRect.width * screenSizeRatio / _scale,
-      _cropRect.height * screenSizeRatio / _scale,
+      max(
+          (_vCropRect.value.left - _vImageRect.value.left) *
+              screenSizeRatio /
+              _scale,
+          0.0),
+      max(
+          (_vCropRect.value.top - _vImageRect.value.top) *
+              screenSizeRatio /
+              _scale,
+          0.0),
+      _vCropRect.value.width * screenSizeRatio / _scale,
+      _vCropRect.value.height * screenSizeRatio / _scale,
     );
     ui.Image cropResult = await ImageImageCropperV2().crop(
-      original: _parsedImageDetailV2!.image!,
+      transformedImage: _parsedImageDetailV2!.image!,
       topLeft: rect.topLeft,
       bottomRight: rect.bottomRight,
       outputFormat: _detectedFormat,
+      exifStateMachine: widget.exifStateMachine,
+      isWithoutTransform: isWithoutTransform,
     );
 
     widget.onCropped(cropResult);
-    widget.onStatusChanged?.call(CropStatus.ready);
+    widget.onStatusChanged?.call(EnumCropStatus.ready);
     return cropResult;
   }
 
@@ -860,300 +957,345 @@ class _CropEditorState extends State<_CropEditor>
             clipBehavior: widget.clipBehavior,
             children: [
               /// Image
-              Listener(
-                onPointerSignal: (signal) {
-                  if (signal is PointerScrollEvent) {
-                    if (signal.scrollDelta.dy > 0) {
-                      _applyScale(
-                        _scale - widget.scrollZoomSensitivity,
-                        focalPoint: signal.localPosition,
-                      );
-                    } else if (signal.scrollDelta.dy < 0) {
-                      _applyScale(
-                        _scale + widget.scrollZoomSensitivity,
-                        focalPoint: signal.localPosition,
-                      );
-                    }
-                    //print(_scale);
-                  }
-                },
-                child: GestureDetector(
-                  onScaleStart: widget.interactive ? _startScale : null,
-                  onScaleUpdate: widget.interactive ? _updateScale : null,
-                  onScaleEnd: _endScale,
-                  child: Container(
-                    color: widget.baseColor,
-                    width: MediaQuery.of(context).size.width,
-                    height: MediaQuery.of(context).size.height,
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: _imageRect.left,
-                          top: _imageRect.top,
-                          child: RawImage(
-                            image: widget.uiImage,
-                            width: _isFitVertically
-                                ? null
-                                : MediaQuery.of(context).size.width * _scale,
-                            height: _isFitVertically
-                                ? MediaQuery.of(context).size.height * _scale
-                                : null,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              /// Mask
-              IgnorePointer(
-                child: ClipPath(
-                  clipper: _withCircleUi
-                      ? CircleCropAreaClipper(_cropRect)
-                      : CropAreaClipper(_cropRect, widget.radius),
-                  clipBehavior: Clip.antiAlias,
-                  child: AnimatedContainer(
-                    width: double.infinity,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      color: _showCropAreaOnly && widget.alwaysShowCropFrame
-                          ? widget.baseColor
-                          : widget.baseColor.withOpacity(0),
-                      // color: Colors.transparent,
-                    ),
-                    duration: 250.ms,
-                    curve: Curves.decelerate,
-                  ),
-                ),
-              ),
-              if (!widget.interactive && !widget.fixCropRect)
-                Positioned(
-                  left: _cropRect.left,
-                  top: _cropRect.top,
-                  child: GestureDetector(
-                    onPanUpdate: (details) {
-                      cropRect = calculator.moveRect(
-                        _cropRect,
-                        details.delta.dx,
-                        details.delta.dy,
-                        _imageRect,
-                      );
-                      _onCropRectUpdate();
+              ValueListenableBuilder(
+                valueListenable: ValuesListenablesCustom(valueListenables: [
+                  _vImageRect,
+                ]),
+                builder: (context, value, _) {
+                  return Listener(
+                    onPointerSignal: (signal) {
+                      if (signal is PointerScrollEvent) {
+                        if (signal.scrollDelta.dy > 0) {
+                          _applyScale(
+                            _scale - widget.scrollZoomSensitivity,
+                            focalPoint: signal.localPosition,
+                          );
+                        } else if (signal.scrollDelta.dy < 0) {
+                          _applyScale(
+                            _scale + widget.scrollZoomSensitivity,
+                            focalPoint: signal.localPosition,
+                          );
+                        }
+                      }
                     },
-                    onPanDown: _startPan,
-                    onPanEnd: _endPan,
-                    onPanCancel: _cancelPan,
-                    child: Container(
-                      width: _cropRect.width,
-                      height: _cropRect.height,
-                      color: Colors.transparent,
-                    ),
-                  ),
-                ),
-
-              /// CONTAINER CROP VIEW
-              Positioned.fromRect(
-                rect: _cropRect,
-                child: AnimatedOpacity(
-                  opacity:
-                      _showCropAreaOnly && !widget.alwaysShowCropFrame ? 0 : 1,
-                  duration: 300.ms,
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: widget.colorCropEdge ?? Colors.red,
-                          width: 1.66,
+                    child: GestureDetector(
+                      onScaleStart: widget.interactive ? _startScale : null,
+                      onScaleUpdate: widget.interactive ? _updateScale : null,
+                      onScaleEnd: _endScale,
+                      child: Container(
+                        color: widget.baseColor,
+                        width: MediaQuery.of(context).size.width,
+                        height: MediaQuery.of(context).size.height,
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: _vImageRect.value.left,
+                              top: _vImageRect.value.top,
+                              child: RawImage(
+                                image: _uiImageOriginal,
+                                fit: BoxFit.contain,
+                                filterQuality: ui.FilterQuality.low,
+                                width: _isFitVertically
+                                    ? null
+                                    : MediaQuery.of(context).size.width *
+                                        _scale,
+                                height: _isFitVertically
+                                    ? MediaQuery.of(context).size.height *
+                                        _scale
+                                    : null,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
 
-              /// DIVIDERS
-              Positioned.fromRect(
-                rect: _cropRect.copyWith(
-                  left: _cropRect.left + _cropRect.width / 3 - 0.5,
-                  width: 1,
-                ),
-                child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
-                  duration: 300.ms,
-                  child: IgnorePointer(
-                    child: Container(
-                      color: widget.colorDivider,
-                    ),
-                  ),
-                ),
-              ),
+              ValueListenableBuilder(
+                  valueListenable: ValuesListenablesCustom(valueListenables: [
+                    _vImageRect,
+                    _vCropRect,
+                    _vShowCropAreaOnly,
+                  ]),
+                  builder: (context, _, __) {
+                    return Stack(
+                      clipBehavior: widget.clipBehavior,
+                      children: [
+                        /// Mask
+                        IgnorePointer(
+                          child: ClipPath(
+                            clipper: _withCircleUi
+                                ? CircleCropAreaClipper(_vCropRect.value)
+                                : CropAreaClipper(
+                                    _vCropRect.value, widget.radius),
+                            clipBehavior: Clip.antiAlias,
+                            child: AnimatedContainer(
+                              width: double.infinity,
+                              height: double.infinity,
+                              decoration: BoxDecoration(
+                                color: _vShowCropAreaOnly.value &&
+                                        widget.alwaysShowCropFrame
+                                    ? widget.baseColor
+                                    : widget.baseColor.withOpacity(0),
+                              ),
+                              duration: 250.ms,
+                              curve: Curves.decelerate,
+                            ),
+                          ),
+                        ),
+                        if (!widget.interactive && !widget.fixCropRect)
+                          Positioned(
+                            left: _vCropRect.value.left,
+                            top: _vCropRect.value.top,
+                            child: GestureDetector(
+                              onPanUpdate: (details) {
+                                cropRect = calculator.moveRect(
+                                  _vCropRect.value,
+                                  details.delta.dx,
+                                  details.delta.dy,
+                                  _vImageRect.value,
+                                );
+                                _onCropRectUpdate();
+                              },
+                              onPanDown: _startPan,
+                              onPanEnd: _endPan,
+                              onPanCancel: _cancelPan,
+                              child: Container(
+                                width: _vCropRect.value.width,
+                                height: _vCropRect.value.height,
+                                color: Colors.transparent,
+                              ),
+                            ),
+                          ),
 
-              Positioned.fromRect(
-                rect: _cropRect.copyWith(
-                  left: _cropRect.left + _cropRect.width * 2 / 3 - 0.5,
-                  width: 1,
-                ),
-                child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
-                  duration: 300.ms,
-                  child: IgnorePointer(
-                    child: Container(
-                      color: widget.colorDivider,
-                    ),
-                  ),
-                ),
-              ),
+                        /// CONTAINER CROP VIEW
+                        Positioned.fromRect(
+                          rect: _vCropRect.value,
+                          child: AnimatedOpacity(
+                            opacity: _vShowCropAreaOnly.value &&
+                                    !widget.alwaysShowCropFrame
+                                ? 0
+                                : 1,
+                            duration: 300.ms,
+                            child: IgnorePointer(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: widget.colorCropEdge ?? Colors.red,
+                                    width: 1.66,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
 
-              Positioned.fromRect(
-                rect: _cropRect.copyWith(
-                  top: _cropRect.top + _cropRect.height / 3 - 0.5,
-                  height: 1,
-                ),
-                child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
-                  duration: 300.ms,
-                  child: IgnorePointer(
-                    child: Container(
-                      color: widget.colorDivider,
-                    ),
-                  ),
-                ),
-              ),
+                        /// DIVIDERS
+                        Positioned.fromRect(
+                          rect: _vCropRect.value.copyWith(
+                            left: _vCropRect.value.left +
+                                _vCropRect.value.width / 3 -
+                                0.5,
+                            width: 1,
+                          ),
+                          child: AnimatedOpacity(
+                            opacity: _vShowCropAreaOnly.value ? 0 : 1,
+                            duration: 300.ms,
+                            child: IgnorePointer(
+                              child: Container(
+                                color: widget.colorDivider,
+                              ),
+                            ),
+                          ),
+                        ),
 
-              Positioned.fromRect(
-                rect: _cropRect.copyWith(
-                  top: _cropRect.top + _cropRect.height * 2 / 3 - 0.5,
-                  height: 1,
-                ),
-                child: AnimatedOpacity(
-                  opacity: _showCropAreaOnly ? 0 : 1,
-                  duration: 300.ms,
-                  child: IgnorePointer(
-                    child: Container(
-                      color: widget.colorDivider,
-                    ),
-                  ),
-                ),
-              ),
+                        Positioned.fromRect(
+                          rect: _vCropRect.value.copyWith(
+                            left: _vCropRect.value.left +
+                                _vCropRect.value.width * 2 / 3 -
+                                0.5,
+                            width: 1,
+                          ),
+                          child: AnimatedOpacity(
+                            opacity: _vShowCropAreaOnly.value ? 0 : 1,
+                            duration: 300.ms,
+                            child: IgnorePointer(
+                              child: Container(
+                                color: widget.colorDivider,
+                              ),
+                            ),
+                          ),
+                        ),
 
-              // EDGE
-              _leftCropGesture(),
-              _rightCropGesture(),
-              _topCropGesture(),
-              _bottomCropGesture(),
+                        Positioned.fromRect(
+                          rect: _vCropRect.value.copyWith(
+                            top: _vCropRect.value.top +
+                                _vCropRect.value.height / 3 -
+                                0.5,
+                            height: 1,
+                          ),
+                          child: AnimatedOpacity(
+                            opacity: _vShowCropAreaOnly.value ? 0 : 1,
+                            duration: 300.ms,
+                            child: IgnorePointer(
+                              child: Container(
+                                color: widget.colorDivider,
+                              ),
+                            ),
+                          ),
+                        ),
 
-              /// DOT TOP LEFT
-              Positioned(
-                left: _cropRect.left - (widget.dotSize / 2) + 1,
-                top: _cropRect.top - (widget.dotSize / 2) + 1.5,
-                child: GestureDetector(
-                  onPanDown: _startPan,
-                  onPanCancel: _cancelPan,
-                  onPanUpdate: widget.fixCropRect
-                      ? null
-                      : (details) {
-                          showCropAreaOnly = false;
-                          cropRect = calculator.moveTopLeft(
-                            original: _cropRect,
-                            deltaX: details.delta.dx,
-                            deltaY: details.delta.dy,
-                            imageRect: _imageRect,
-                            aspectRatio: _aspectRatio,
-                            dotSize: widget.dotSize,
-                          );
-                        },
-                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                  child: widget.cornerDotBuilder
-                          ?.call(widget.dotSize, EdgeAlignment.topLeft) ??
-                      const DotControl(),
-                ),
-              ),
+                        Positioned.fromRect(
+                          rect: _vCropRect.value.copyWith(
+                            top: _vCropRect.value.top +
+                                _vCropRect.value.height * 2 / 3 -
+                                0.5,
+                            height: 1,
+                          ),
+                          child: AnimatedOpacity(
+                            opacity: _vShowCropAreaOnly.value ? 0 : 1,
+                            duration: 300.ms,
+                            child: IgnorePointer(
+                              child: Container(
+                                color: widget.colorDivider,
+                              ),
+                            ),
+                          ),
+                        ),
 
-              /// DOT TOP RIGHT
-              Positioned(
-                left: _cropRect.right - (widget.dotSize / 2) - 1,
-                top: _cropRect.top - (widget.dotSize / 2) + 1,
-                child: GestureDetector(
-                  onPanDown: _startPan,
-                  onPanCancel: _cancelPan,
-                  onPanUpdate: widget.fixCropRect
-                      ? null
-                      : (details) {
-                          cropRect = calculator.moveTopRight(
-                            original: _cropRect,
-                            deltaX: details.delta.dx,
-                            deltaY: details.delta.dy,
-                            imageRect: _imageRect,
-                            aspectRatio: _aspectRatio,
-                            dotSize: widget.dotSize,
-                            viewportSize: _viewportSize,
-                          );
-                        },
-                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                  child: widget.cornerDotBuilder
-                          ?.call(widget.dotSize, EdgeAlignment.topRight) ??
-                      const DotControl(),
-                ),
-              ),
+                        // EDGE
+                        _leftCropGesture(),
+                        _rightCropGesture(),
+                        _topCropGesture(),
+                        _bottomCropGesture(),
 
-              /// DOT BOTTOM LEFT
-              Positioned(
-                left: _cropRect.left - (widget.dotSize / 2),
-                top: _cropRect.bottom - (widget.dotSize / 2) - 1,
-                child: GestureDetector(
-                  onPanDown: _startPan,
-                  onPanCancel: _cancelPan,
-                  onPanUpdate: widget.fixCropRect
-                      ? null
-                      : (details) {
-                          showCropAreaOnly = false;
+                        /// DOT TOP LEFT
+                        Positioned(
+                          left:
+                              _vCropRect.value.left - (widget.dotSize / 2) + 1,
+                          top:
+                              _vCropRect.value.top - (widget.dotSize / 2) + 1.5,
+                          child: GestureDetector(
+                            onPanDown: _startPan,
+                            onPanCancel: _cancelPan,
+                            onPanUpdate: widget.fixCropRect
+                                ? null
+                                : (details) {
+                                    showCropAreaOnly = false;
+                                    cropRect = calculator.moveTopLeft(
+                                      original: _vCropRect.value,
+                                      deltaX: details.delta.dx,
+                                      deltaY: details.delta.dy,
+                                      imageRect: _vImageRect.value,
+                                      aspectRatio: _aspectRatio,
+                                      dotSize: widget.dotSize,
+                                    );
+                                    _onCropRectUpdate();
+                                  },
+                            onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                            child: widget.cornerDotBuilder?.call(
+                                    widget.dotSize, EdgeAlignment.topLeft) ??
+                                const DotControl(),
+                          ),
+                        ),
 
-                          cropRect = calculator.moveBottomLeft(
-                            original: _cropRect,
-                            deltaX: details.delta.dx,
-                            deltaY: details.delta.dy,
-                            imageRect: _imageRect,
-                            aspectRatio: _aspectRatio,
-                            dotSize: widget.dotSize,
-                            viewportSize: _viewportSize,
-                          );
-                        },
-                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                  child: widget.cornerDotBuilder
-                          ?.call(widget.dotSize, EdgeAlignment.bottomLeft) ??
-                      const DotControl(),
-                ),
-              ),
+                        /// DOT TOP RIGHT
+                        Positioned(
+                          left:
+                              _vCropRect.value.right - (widget.dotSize / 2) - 1,
+                          top: _vCropRect.value.top - (widget.dotSize / 2) + 1,
+                          child: GestureDetector(
+                            onPanDown: _startPan,
+                            onPanCancel: _cancelPan,
+                            onPanUpdate: widget.fixCropRect
+                                ? null
+                                : (details) {
+                                    cropRect = calculator.moveTopRight(
+                                      original: _vCropRect.value,
+                                      deltaX: details.delta.dx,
+                                      deltaY: details.delta.dy,
+                                      imageRect: _vImageRect.value,
+                                      aspectRatio: _aspectRatio,
+                                      dotSize: widget.dotSize,
+                                      viewportSize: _viewportSize,
+                                    );
+                                    _onCropRectUpdate();
+                                  },
+                            onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                            child: widget.cornerDotBuilder?.call(
+                                    widget.dotSize, EdgeAlignment.topRight) ??
+                                const DotControl(),
+                          ),
+                        ),
 
-              /// DOT BOTTOM RIGHT
-              Positioned(
-                left: _cropRect.right - (widget.dotSize / 2) - 1,
-                top: _cropRect.bottom - (widget.dotSize / 2) - 1,
-                child: GestureDetector(
-                  onPanDown: _startPan,
-                  onPanCancel: _cancelPan,
-                  onPanUpdate: widget.fixCropRect
-                      ? null
-                      : (details) {
-                          showCropAreaOnly = false;
-                          cropRect = calculator.moveBottomRight(
-                            original: _cropRect,
-                            deltaX: details.delta.dx,
-                            deltaY: details.delta.dy,
-                            imageRect: _imageRect,
-                            aspectRatio: _aspectRatio,
-                            dotSize: widget.dotSize,
-                            viewportSize: _viewportSize,
-                          );
-                        },
-                  onPanEnd: widget.fixCropRect ? null : _endMoveDot,
-                  child: widget.cornerDotBuilder
-                          ?.call(widget.dotSize, EdgeAlignment.bottomRight) ??
-                      const DotControl(),
-                ),
-              ),
+                        /// DOT BOTTOM LEFT
+                        Positioned(
+                          left: _vCropRect.value.left - (widget.dotSize / 2),
+                          top: _vCropRect.value.bottom -
+                              (widget.dotSize / 2) -
+                              1,
+                          child: GestureDetector(
+                            onPanDown: _startPan,
+                            onPanCancel: _cancelPan,
+                            onPanUpdate: widget.fixCropRect
+                                ? null
+                                : (details) {
+                                    showCropAreaOnly = false;
+
+                                    cropRect = calculator.moveBottomLeft(
+                                      original: _vCropRect.value,
+                                      deltaX: details.delta.dx,
+                                      deltaY: details.delta.dy,
+                                      imageRect: _vImageRect.value,
+                                      aspectRatio: _aspectRatio,
+                                      dotSize: widget.dotSize,
+                                      viewportSize: _viewportSize,
+                                    );
+                                    _onCropRectUpdate();
+                                  },
+                            onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                            child: widget.cornerDotBuilder?.call(
+                                    widget.dotSize, EdgeAlignment.bottomLeft) ??
+                                const DotControl(),
+                          ),
+                        ),
+
+                        /// DOT BOTTOM RIGHT
+                        Positioned(
+                          left:
+                              _vCropRect.value.right - (widget.dotSize / 2) - 1,
+                          top: _vCropRect.value.bottom -
+                              (widget.dotSize / 2) -
+                              1,
+                          child: GestureDetector(
+                            onPanDown: _startPan,
+                            onPanCancel: _cancelPan,
+                            onPanUpdate: widget.fixCropRect
+                                ? null
+                                : (details) {
+                                    showCropAreaOnly = false;
+                                    cropRect = calculator.moveBottomRight(
+                                      original: _vCropRect.value,
+                                      deltaX: details.delta.dx,
+                                      deltaY: details.delta.dy,
+                                      imageRect: _vImageRect.value,
+                                      aspectRatio: _aspectRatio,
+                                      dotSize: widget.dotSize,
+                                      viewportSize: _viewportSize,
+                                    );
+                                    _onCropRectUpdate();
+                                  },
+                            onPanEnd: widget.fixCropRect ? null : _endMoveDot,
+                            child: widget.cornerDotBuilder?.call(widget.dotSize,
+                                    EdgeAlignment.bottomRight) ??
+                                const DotControl(),
+                          ),
+                        ),
+                      ],
+                    );
+                  })
             ],
           );
   }
@@ -1161,10 +1303,10 @@ class _CropEditorState extends State<_CropEditor>
   Widget _leftCropGesture() {
     return Positioned.fromRect(
       rect: Rect.fromLTRB(
-        _cropRect.left - 10,
-        _cropRect.top + 16,
-        _cropRect.left + 10,
-        _cropRect.bottom - 16,
+        _vCropRect.value.left - 10,
+        _vCropRect.value.top + 16,
+        _vCropRect.value.left + 10,
+        _vCropRect.value.bottom - 16,
       ),
       child: GestureDetector(
         onPanUpdate: widget.fixCropRect
@@ -1172,10 +1314,10 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveLeft(
-                  original: _cropRect,
+                  original: _vCropRect.value,
                   deltaX: details.delta.dx,
                   deltaY: 0,
-                  imageRect: _imageRect,
+                  imageRect: _vImageRect.value,
                   aspectRatio: _aspectRatio,
                   dotSize: widget.dotSize,
                 );
@@ -1194,10 +1336,10 @@ class _CropEditorState extends State<_CropEditor>
   Widget _rightCropGesture() {
     return Positioned.fromRect(
       rect: Rect.fromLTRB(
-        _cropRect.right - 10,
-        _cropRect.top + 16,
-        _cropRect.right + 10,
-        _cropRect.bottom - 16,
+        _vCropRect.value.right - 10,
+        _vCropRect.value.top + 16,
+        _vCropRect.value.right + 10,
+        _vCropRect.value.bottom - 16,
       ),
       child: GestureDetector(
         onPanUpdate: widget.fixCropRect
@@ -1205,10 +1347,10 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveRight(
-                  original: _cropRect,
+                  original: _vCropRect.value,
                   deltaX: details.delta.dx,
                   deltaY: 0,
-                  imageRect: _imageRect,
+                  imageRect: _vImageRect.value,
                   aspectRatio: _aspectRatio,
                   dotSize: widget.dotSize,
                   viewportSize: _viewportSize,
@@ -1228,10 +1370,10 @@ class _CropEditorState extends State<_CropEditor>
   Widget _topCropGesture() {
     return Positioned.fromRect(
       rect: Rect.fromLTRB(
-        _cropRect.left + 16,
-        _cropRect.top - 10,
-        _cropRect.right - 16,
-        _cropRect.top + 10,
+        _vCropRect.value.left + 16,
+        _vCropRect.value.top - 10,
+        _vCropRect.value.right - 16,
+        _vCropRect.value.top + 10,
       ),
       child: GestureDetector(
         onPanUpdate: widget.fixCropRect
@@ -1239,10 +1381,10 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveTop(
-                  original: _cropRect,
+                  original: _vCropRect.value,
                   deltaX: 0,
                   deltaY: details.delta.dy,
-                  imageRect: _imageRect,
+                  imageRect: _vImageRect.value,
                   aspectRatio: _aspectRatio,
                   dotSize: widget.dotSize,
                 );
@@ -1261,10 +1403,10 @@ class _CropEditorState extends State<_CropEditor>
   Widget _bottomCropGesture() {
     return Positioned.fromRect(
       rect: Rect.fromLTRB(
-        _cropRect.left + 16,
-        _cropRect.bottom - 10,
-        _cropRect.right - 16,
-        _cropRect.bottom + 10,
+        _vCropRect.value.left + 16,
+        _vCropRect.value.bottom - 10,
+        _vCropRect.value.right - 16,
+        _vCropRect.value.bottom + 10,
       ),
       child: GestureDetector(
         onPanUpdate: widget.fixCropRect
@@ -1272,10 +1414,10 @@ class _CropEditorState extends State<_CropEditor>
             : (details) {
                 showCropAreaOnly = false;
                 cropRect = calculator.moveBottom(
-                  original: _cropRect,
+                  original: _vCropRect.value,
                   deltaX: 0,
                   deltaY: details.delta.dy,
-                  imageRect: _imageRect,
+                  imageRect: _vImageRect.value,
                   aspectRatio: _aspectRatio,
                   dotSize: widget.dotSize,
                   viewportSize: _viewportSize,
