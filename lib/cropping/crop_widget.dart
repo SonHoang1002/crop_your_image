@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math';
 import 'package:crop_image_module/cropping/helpers/constants.dart';
+import 'package:crop_image_module/cropping/helpers/enums.dart';
 import 'package:crop_image_module/cropping/helpers/extensions.dart';
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
 import 'package:crop_image_module/cropping/widget/calculator.dart';
 import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
 import 'package:crop_image_module/cropping/crop_image.dart';
@@ -17,20 +19,6 @@ import 'package:flutter/material.dart';
 import 'package:crop_image_module/cropping/crop_controller.dart'
     as crop_control;
     
-typedef ViewportBasedRect = Rect;
-typedef ImageBasedRect = Rect;
-
-typedef WillUpdateScale = bool Function(double newScale);
-typedef CornerDotBuilder = Widget Function(
-    double size, EdgeAlignment edgeAlignment);
-
-typedef CroppingRectBuilder = ViewportBasedRect Function(
-  ViewportBasedRect viewportRect,
-  ViewportBasedRect imageRect,
-);
-
-enum CropStatus { nothing, loading, ready, cropping }
-
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
 class CropImage extends StatelessWidget {
@@ -46,8 +34,9 @@ class CropImage extends StatelessWidget {
 
   /// call back function when user change crop frame
   ///
-  final void Function(Rect cropImageRect, Rect cropRect, Rect imageOriginalRect,
-      Rect imageScaledRect)? onCropRectChange;
+  final void Function(
+          Rect cropImageRect, Rect cropRect, Rect imageOriginalRect)?
+      onCropRectChange;
 
   /// callback when cropping completed
   final ValueChanged<Uint8List> onCropped;
@@ -95,9 +84,9 @@ class CropImage extends StatelessWidget {
 
   /// Callback called when status of Crop widget is changed.
   ///
-  /// note: Currently, the very first callback is [CropStatus.ready]
+  /// note: Currently, the very first callback is [EnumCropStatus.ready]
   /// which is called after loading [image] data for the first time.
-  final ValueChanged<CropStatus>? onStatusChanged;
+  final ValueChanged<EnumCropStatus>? onStatusChanged;
 
   /// [Color] of the mask widget which is placed over the cropping editor.
   final Color? maskColor;
@@ -257,8 +246,8 @@ class _CropEditor extends StatefulWidget {
   final ValueChanged<Uint8List> onCropped;
   final void Function(Rect imageCropRect, Rect cropRect, Rect imageRect)
       onCropRect;
-  final void Function(Rect cropImageRect, Rect cropRect, Rect imageRect,
-      Rect imageScaledRect)? onCropRectChange;
+  final void Function(Rect cropImageRect, Rect cropRect, Rect imageRect)?
+      onCropRectChange;
   final double? aspectRatio;
   final double? initialSize;
   final CroppingRectBuilder? initialRectBuilder;
@@ -266,7 +255,7 @@ class _CropEditor extends StatefulWidget {
   final bool withCircleUi;
   final crop_control.CropController? controller;
   final ValueChanged<ViewportBasedRect>? onMoved;
-  final ValueChanged<CropStatus>? onStatusChanged;
+  final ValueChanged<EnumCropStatus>? onStatusChanged;
   final Color? maskColor;
   final Color baseColor;
   final double radius;
@@ -483,7 +472,7 @@ class _CropEditorState extends State<_CropEditor>
 
   /// reset image to be cropped
   void _resetImage(Uint8List targetImage) {
-    widget.onStatusChanged?.call(CropStatus.loading);
+    widget.onStatusChanged?.call(EnumCropStatus.loading);
     dev.log("_resetImage");
     _parseImageWith(
       parser: widget.imageParser,
@@ -530,7 +519,7 @@ class _CropEditorState extends State<_CropEditor>
           _detectedFormat = format;
         });
         _resetCropRect();
-        widget.onStatusChanged?.call(CropStatus.ready);
+        widget.onStatusChanged?.call(EnumCropStatus.ready);
       }
     });
   }
@@ -818,8 +807,7 @@ class _CropEditorState extends State<_CropEditor>
 
   void _onCropRectUpdate() {
     Rect cropImageRect = _cropTheRect();
-    widget.onCropRectChange
-        ?.call(cropImageRect, _cropRect, _imageRect, _imageRect);
+    widget.onCropRectChange?.call(cropImageRect, _cropRect, _imageRect);
   }
 
   void _startPan(DragDownDetails details) {
@@ -847,7 +835,7 @@ class _CropEditorState extends State<_CropEditor>
       _viewportSize,
     );
 
-    widget.onStatusChanged?.call(CropStatus.cropping);
+    widget.onStatusChanged?.call(EnumCropStatus.cropping);
 
     // use compute() not to block UI update
     final cropResult = await compute(
@@ -868,7 +856,7 @@ class _CropEditorState extends State<_CropEditor>
     );
 
     widget.onCropped(cropResult);
-    widget.onStatusChanged?.call(CropStatus.ready);
+    widget.onStatusChanged?.call(EnumCropStatus.ready);
     return cropResult;
   }
 
