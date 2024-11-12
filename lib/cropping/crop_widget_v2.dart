@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as dev;
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:crop_image_module/cropping/crop_controller.dart'
@@ -28,9 +29,10 @@ import 'package:flutter/material.dart';
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
 class CropImageV2 extends StatelessWidget {
+  /// Data of display image below crop frame
+  ///
+  /// This data is used to generate uiImage to display and crop to target uiImage
   final Uint8List imageData;
-
-  /// callback when cropping completed
 
   /// [cropImageRect] is the crop Rect in the source image
   /// [cropRect] is the rect in the viewport container
@@ -137,10 +139,10 @@ class CropImageV2 extends StatelessWidget {
   /// Padding vertical for crop rect after resizing by end of the gesture
   final double? paddingVertical;
 
-  /// Dot size, (defaul: [constDotTotalSize])
+  /// Dot size, (defaul: [DOT_TOTAL_SIZE])
   final double dotTotalSize;
 
-  /// Used to check whether if always show crop frame
+  /// Used to check whether if always show crop frame ( include corners, edges )
   final bool alwaysShowCropFrame;
 
   /// Color for 4 divider
@@ -149,6 +151,7 @@ class CropImageV2 extends StatelessWidget {
   /// Color for outer edge
   final Color? colorCropEdge;
 
+  /// Called whenever crop frame change ( drag edge, drag corner, zoom-in, zoom-out )
   final void Function(
     Rect cropImageRect,
     Rect cropRect,
@@ -157,11 +160,16 @@ class CropImageV2 extends StatelessWidget {
 
   /// Callback is only called when complete init crop rect
   final void Function(Rect initialCropRect)? initCropRectCallBack;
-  
+
   /// State save current status of image
-  /// 
+  ///
   /// Default: Normal ( not rotate and not flip ( flip-x, flip-y ) )
   final ExifStateMachine? exifStateMachine;
+
+  /// Used to replace to display large image ( with max dimension > 7000 pixel ) because Image.file
+  ///
+  /// Default: use [RawImage] to display uiImage from data that is generated from [widget.imageData]
+  final String? originalPath;
 
   CropImageV2({
     super.key,
@@ -197,6 +205,7 @@ class CropImageV2 extends StatelessWidget {
     this.colorCropEdge,
     this.initCropRectCallBack,
     this.exifStateMachine,
+    this.originalPath,
   }) {
     assert((initialSize ?? 1.0) <= 1.0,
         'initialSize must be less than 1.0, or null meaning not specified.');
@@ -244,6 +253,7 @@ class CropImageV2 extends StatelessWidget {
             onCropRectChange: onCropRectChange,
             initCropRectCallBack: initCropRectCallBack,
             exifStateMachine: exifStateMachine ?? ExifStateMachine.create(),
+            originalPath: originalPath,
           ),
         );
       },
@@ -277,25 +287,18 @@ class _CropEditor extends StatefulWidget {
   final double scrollZoomSensitivity;
   final double paddingHorizontal;
   final double paddingVertical;
-
   final double dotSize;
-
   final bool alwaysShowCropFrame;
-
   final Color? colorDivider;
-
   final Color? colorCropEdge;
-
   final void Function(
     ui.Rect cropImageRect,
     ui.Rect cropRect,
     ui.Rect imageOriginalRect,
   )? onCropRectChange;
-
   final void Function(Rect initialCropRect)? initCropRectCallBack;
-
   final ExifStateMachine exifStateMachine;
-
+  final String? originalPath;
   const _CropEditor({
     super.key,
     required this.imageData,
@@ -329,6 +332,7 @@ class _CropEditor extends StatefulWidget {
     this.colorDivider,
     this.onCropRectChange,
     this.initCropRectCallBack,
+    this.originalPath,
   });
 
   @override
@@ -991,19 +995,33 @@ class _CropEditorState extends State<_CropEditor>
                             Positioned(
                               left: _vImageRect.value.left,
                               top: _vImageRect.value.top,
-                              child: RawImage(
-                                image: _uiImageOriginal,
-                                fit: BoxFit.contain,
-                                filterQuality: ui.FilterQuality.low,
-                                width: _isFitVertically
-                                    ? null
-                                    : MediaQuery.of(context).size.width *
-                                        _scale,
-                                height: _isFitVertically
-                                    ? MediaQuery.of(context).size.height *
-                                        _scale
-                                    : null,
-                              ),
+                              child: widget.originalPath != null
+                                  ? Image.file(
+                                      File(widget.originalPath!),
+                                      fit: BoxFit.contain,
+                                      filterQuality: ui.FilterQuality.low,
+                                      width: _isFitVertically
+                                          ? null
+                                          : MediaQuery.of(context).size.width *
+                                              _scale,
+                                      height: _isFitVertically
+                                          ? MediaQuery.of(context).size.height *
+                                              _scale
+                                          : null,
+                                    )
+                                  : RawImage(
+                                      image: _uiImageOriginal,
+                                      fit: BoxFit.contain,
+                                      filterQuality: ui.FilterQuality.low,
+                                      width: _isFitVertically
+                                          ? null
+                                          : MediaQuery.of(context).size.width *
+                                              _scale,
+                                      height: _isFitVertically
+                                          ? MediaQuery.of(context).size.height *
+                                              _scale
+                                          : null,
+                                    ),
                             ),
                           ],
                         ),

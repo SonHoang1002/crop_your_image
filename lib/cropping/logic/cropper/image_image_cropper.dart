@@ -100,6 +100,12 @@ class ImageImageCropper extends ImageCropper<Image> {
 
 /// an implementation of [ImageCropperV2] using image package
 class ImageImageCropperV2 {
+
+  /// Used to crop uiImage from original image 
+  /// * [transformedImage] : uiImage is transformed with rotate, flip-x, flip-y
+  /// * [topLeft] , [bottomRight] : Offset of target crop frame
+  /// * [exifStateMachine] : Current status transform when crop 
+  /// * [isWithoutTransform] : If true -> return transformedImage, else -> return reversed transformImage
   FutureOr<ui.Image> crop({
     required ui.Image transformedImage,
     required Offset topLeft,
