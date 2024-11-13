@@ -1,6 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:crop_image_module/cropping/helpers/enums.dart';
 import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
 import 'package:crop_image_module/cropping/logic/parser/errors.dart';
 import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
@@ -24,8 +25,12 @@ final ImageParserV2<ui.Image> imageImageParserV2 =
 /// Implementation of [ImageParser] using image package
 /// Parsed image is represented as [image.Image]
 // ignore: prefer_function_declarations_over_variables
-final ImageParser<image.Image> imageImageParser =
-    (Uint8List data, {ImageFormat? inputFormat, ui.Image? uiImage}) {
+final ImageParser<image.Image> imageImageParser = (
+  Uint8List data,
+  ExifStateMachine exifStateMachine, {
+  ImageFormat? inputFormat,
+  ui.Image? uiImage,
+}) {
   image.Image? tempImage;
   Stopwatch stopwatch = Stopwatch();
   stopwatch.start();
@@ -37,24 +42,43 @@ final ImageParser<image.Image> imageImageParser =
   stopwatch.stop();
   log("imageImageParser decode image log: ${stopwatch.elapsedMilliseconds}.ms");
 
-  assert(tempImage != null);
-
   stopwatch.start();
   // check orientation
-  final parsed = switch (tempImage?.exif.exifIfd.orientation ?? -1) {
+  image.Image parsed = switch (tempImage?.exif.exifIfd.orientation ?? -1) {
     3 => image.copyRotate(tempImage!, angle: 180),
     6 => image.copyRotate(tempImage!, angle: 90),
     8 => image.copyRotate(tempImage!, angle: -90),
     _ => tempImage!,
   };
 
-  stopwatch.stop();
-  log("imageImageParser check orientation log: ${stopwatch.elapsedMilliseconds}.ms");
+  // transform with exifStateMachine
+  List<double> listTransform =
+      exifStateMachine.currentResizeOrientation.getTransform();
+  double angle = listTransform[0];
+  double flipHorizontal = listTransform[1];
+  double flipVertical = listTransform[2];
 
+  if (angle != 0) {
+    parsed = image.copyRotate(
+      parsed,
+      angle: listTransform[0],
+    );
+  }
+
+  if (flipHorizontal == -1) {
+    parsed = image.flipHorizontal(parsed);
+  }
+  if (flipVertical == -1) {
+    parsed = image.flipVertical(parsed);
+  }
+
+  stopwatch.stop();
+  Uint8List imageData = image.encodeJpg(parsed);
   return ImageDetail(
     image: parsed,
     width: parsed.width.toDouble(),
     height: parsed.height.toDouble(),
+    imageData: imageData,
   );
 };
 

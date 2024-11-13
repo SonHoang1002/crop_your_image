@@ -2,8 +2,8 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
-import 'package:crop_image_module/cropping/helpers/enums.dart';
 import 'package:flutter/material.dart';
+import 'package:crop_image_module/cropping/helpers/enums.dart';
 
 class CropImageHelpers {
   /// [imageData] is original image

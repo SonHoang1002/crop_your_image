@@ -22,6 +22,7 @@ class ImageImageCropper extends ImageCropper<Image> {
     required Image original,
     required Offset topLeft,
     required Offset bottomRight,
+    required ExifStateMachine exifStateMachine,
     format.ImageFormat outputFormat = format.ImageFormat.jpeg,
     ImageShape shape = ImageShape.rectangle,
   }) {
@@ -51,6 +52,7 @@ class ImageImageCropper extends ImageCropper<Image> {
         bottomRight.dx - topLeft.dx,
         bottomRight.dy - topLeft.dy,
       ),
+      exifStateMachine: exifStateMachine,
     );
   }
 
@@ -60,17 +62,35 @@ class ImageImageCropper extends ImageCropper<Image> {
     Image original, {
     required Offset topLeft,
     required Size size,
+    required ExifStateMachine exifStateMachine,
   }) {
+    Image transformedCroppedImage = copyCrop(
+      original,
+      x: topLeft.dx.toInt(),
+      y: topLeft.dy.toInt(),
+      width: size.width.toInt(),
+      height: size.height.toInt(),
+    );
+
+    List<double> listTransform =
+        exifStateMachine.currentResizeOrientation.getTransform();
+    double rotate = -listTransform[0];
+    double vFlipHorizontal = listTransform[1];
+    double vFlipVertical = listTransform[2];
+
+    if (rotate != 0) {
+      transformedCroppedImage =
+          copyRotate(transformedCroppedImage, angle: rotate);
+    }
+    if (vFlipHorizontal == -1) {
+      transformedCroppedImage = flipHorizontal(transformedCroppedImage);
+    }
+    if (vFlipVertical == -1) {
+      transformedCroppedImage = flipVertical(transformedCroppedImage);
+    }
+
     return Uint8List.fromList(
-      encodePng(
-        copyCrop(
-          original,
-          x: topLeft.dx.toInt(),
-          y: topLeft.dy.toInt(),
-          width: size.width.toInt(),
-          height: size.height.toInt(),
-        ),
-      ),
+      encodePng(transformedCroppedImage),
     );
   }
 
@@ -80,6 +100,7 @@ class ImageImageCropper extends ImageCropper<Image> {
     Image original, {
     required Offset topLeft,
     required Size size,
+    required ExifStateMachine exifStateMachine,
   }) {
     final center = Point(
       topLeft.dx + size.width / 2,
@@ -100,11 +121,10 @@ class ImageImageCropper extends ImageCropper<Image> {
 
 /// an implementation of [ImageCropperV2] using image package
 class ImageImageCropperV2 {
-
-  /// Used to crop uiImage from original image 
+  /// Used to crop uiImage from original image
   /// * [transformedImage] : uiImage is transformed with rotate, flip-x, flip-y
   /// * [topLeft] , [bottomRight] : Offset of target crop frame
-  /// * [exifStateMachine] : Current status transform when crop 
+  /// * [exifStateMachine] : Current status transform when crop
   /// * [isWithoutTransform] : If true -> return transformedImage, else -> return reversed transformImage
   FutureOr<ui.Image> crop({
     required ui.Image transformedImage,

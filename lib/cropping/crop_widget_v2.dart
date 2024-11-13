@@ -166,10 +166,16 @@ class CropImageV2 extends StatelessWidget {
   /// Default: Normal ( not rotate and not flip ( flip-x, flip-y ) )
   final ExifStateMachine? exifStateMachine;
 
-  /// Used to replace to display large image ( with max dimension > 7000 pixel ) because Image.file
+  /// Used to scale down original image, combine with [scaleDown] to scale original image
   ///
-  /// Default: use [RawImage] to display uiImage from data that is generated from [widget.imageData]
-  final String? originalPath;
+  /// Result from this function to replace for displaying original image
+  final Future<String?> Function(
+    Size originalSize,
+    double scaleDown,
+  )? onScaleDownOriginal;
+
+  /// If [isMinimizeFile] true, scale original image down depend on [scaleDown] ( original / scaleDown )
+  final double scaleDown;
 
   CropImageV2({
     super.key,
@@ -205,7 +211,8 @@ class CropImageV2 extends StatelessWidget {
     this.colorCropEdge,
     this.initCropRectCallBack,
     this.exifStateMachine,
-    this.originalPath,
+    this.scaleDown = 1.2,
+    this.onScaleDownOriginal,
   }) {
     assert((initialSize ?? 1.0) <= 1.0,
         'initialSize must be less than 1.0, or null meaning not specified.');
@@ -253,7 +260,8 @@ class CropImageV2 extends StatelessWidget {
             onCropRectChange: onCropRectChange,
             initCropRectCallBack: initCropRectCallBack,
             exifStateMachine: exifStateMachine ?? ExifStateMachine.create(),
-            originalPath: originalPath,
+            scaleDown: scaleDown,
+            onScaleDownOriginal: onScaleDownOriginal,
           ),
         );
       },
@@ -298,7 +306,10 @@ class _CropEditor extends StatefulWidget {
   )? onCropRectChange;
   final void Function(Rect initialCropRect)? initCropRectCallBack;
   final ExifStateMachine exifStateMachine;
-  final String? originalPath;
+  final Future<String?> Function(Size originalSize, double scaleDown)?
+      onScaleDownOriginal;
+  final double scaleDown;
+
   const _CropEditor({
     super.key,
     required this.imageData,
@@ -328,11 +339,12 @@ class _CropEditor extends StatefulWidget {
     required this.dotSize,
     required this.alwaysShowCropFrame,
     required this.exifStateMachine,
+    this.onScaleDownOriginal,
+    required this.scaleDown,
     this.colorCropEdge,
     this.colorDivider,
     this.onCropRectChange,
     this.initCropRectCallBack,
-    this.originalPath,
   });
 
   @override
@@ -386,6 +398,10 @@ class _CropEditorState extends State<_CropEditor>
   late ui.Image _uiImageOriginal;
 
   ImageFormatV2? _detectedFormat;
+
+  String? _resizeImagePath;
+
+  // Uint8List? _transformImageData;
 
   // for zooming
   double _scale = 1.0;
@@ -516,8 +532,22 @@ class _CropEditorState extends State<_CropEditor>
   }
 
   void _handleInitPostFrame() async {
+    Stopwatch stopwatch = Stopwatch();
+    stopwatch.start();
     _uiImageOriginal = await _handleInitUiImage(widget.imageData);
-
+    // if (max(_uiImageOriginal.width, _uiImageOriginal.height) > 5000) {
+    //   _transformImageData =
+    //       (await _uiImageOriginal.toByteData(format: ui.ImageByteFormat.png))!
+    //           .buffer
+    //           .asUint8List();
+    // }
+    if (widget.onScaleDownOriginal != null) {
+      _resizeImagePath = await widget.onScaleDownOriginal!(
+        Size(_uiImageOriginal.width.toDouble(),
+            _uiImageOriginal.height.toDouble()),
+        widget.scaleDown,
+      );
+    }
     _parseImageWith(
       image: _uiImageOriginal,
       imageData: widget.imageData,
@@ -525,12 +555,8 @@ class _CropEditorState extends State<_CropEditor>
 
     widget.initCropRectCallBack?.call(_vCropRect.value);
 
-    // _uiImageOriginal = await CropImageHelpers.scaleDown(
-    //   uiImageOriginal: _uiImageOriginal,
-    //   exifStateMachine: widget.exifStateMachine,
-    // );
-
     _isImageLoading = false;
+    stopwatch.stop();
     setState(() {});
   }
 
@@ -573,7 +599,6 @@ class _CropEditorState extends State<_CropEditor>
     _vImageRect.value = calculator.imageRect(screenSize, imageAspectRatio);
 
     if (widget.initialRectBuilder != null) {
-      dev.log("_resetCropRect, widget.initialRectBuilder");
       cropRect = widget.initialRectBuilder!(
         Rect.fromLTWH(
           0,
@@ -995,9 +1020,9 @@ class _CropEditorState extends State<_CropEditor>
                             Positioned(
                               left: _vImageRect.value.left,
                               top: _vImageRect.value.top,
-                              child: widget.originalPath != null
+                              child: _resizeImagePath != null
                                   ? Image.file(
-                                      File(widget.originalPath!),
+                                      File(_resizeImagePath!),
                                       fit: BoxFit.contain,
                                       filterQuality: ui.FilterQuality.low,
                                       width: _isFitVertically

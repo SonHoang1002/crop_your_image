@@ -6,11 +6,13 @@ class ImageDetail<T> {
     required this.image,
     required this.width,
     required this.height,
+    required this.imageData
   });
 
   final T image;
   final double width;
   final double height;
+  final Uint8List imageData;
 
   late final bool isLandscape = width >= height;
   late final bool isPortrait = width < height;

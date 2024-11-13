@@ -1,27 +1,31 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math';
-import 'package:crop_image_module/cropping/helpers/constants.dart';
-import 'package:crop_image_module/cropping/helpers/enums.dart';
-import 'package:crop_image_module/cropping/helpers/extensions.dart';
-import 'package:crop_image_module/cropping/helpers/typedef.dart';
-import 'package:crop_image_module/cropping/widget/calculator.dart';
-import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
-import 'package:crop_image_module/cropping/crop_image.dart';
-import 'package:crop_image_module/cropping/logic/logic.dart';
-import 'package:crop_image_module/cropping/logic/shape.dart';
-import 'package:crop_image_module/cropping/widget/circle_crop_area_clipper.dart';
-import 'package:crop_image_module/cropping/widget/dot_control.dart';
-import 'package:crop_image_module/cropping/widget/rect_crop_area_clipper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:crop_image_module/cropping/crop_controller.dart'
     as crop_control;
-    
+import 'package:crop_image_module/cropping/crop_image.dart';
+import 'package:crop_image_module/cropping/helpers/constants.dart';
+import 'package:crop_image_module/cropping/helpers/enums.dart';
+import 'package:crop_image_module/cropping/helpers/extensions.dart';
+import 'package:crop_image_module/cropping/helpers/typedef.dart';
+import 'package:crop_image_module/cropping/logic/cropper/image_cropper.dart';
+import 'package:crop_image_module/cropping/logic/format_detector/format.dart';
+import 'package:crop_image_module/cropping/logic/format_detector/format_detector.dart';
+import 'package:crop_image_module/cropping/logic/parser/image_detail.dart';
+import 'package:crop_image_module/cropping/logic/parser/image_parser.dart';
+import 'package:crop_image_module/cropping/logic/shape.dart';
+import 'package:crop_image_module/cropping/widget/calculator.dart';
+import 'package:crop_image_module/cropping/widget/circle_crop_area_clipper.dart';
+import 'package:crop_image_module/cropping/widget/dot_control.dart';
+import 'package:crop_image_module/cropping/widget/edge_alignment.dart';
+import 'package:crop_image_module/cropping/widget/rect_crop_area_clipper.dart';
+
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
-class CropImage extends StatelessWidget {
+class CropImageV1 extends StatelessWidget {
   /// original image data
   final Uint8List image;
 
@@ -155,7 +159,11 @@ class CropImage extends StatelessWidget {
   /// Color for outer edge
   final Color? colorCropEdge;
 
-  CropImage({
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+
+  final ExifStateMachine? exifStateMachine;
+
+  CropImageV1({
     super.key,
     required this.image,
     required this.onCropped,
@@ -188,6 +196,8 @@ class CropImage extends StatelessWidget {
     this.colorCropEdge,
     this.colorDivider,
     this.onCropRectChange,
+    this.initCropRectCallBack,
+    this.exifStateMachine,
   })  : assert((initialSize ?? 1.0) <= 1.0,
             'initialSize must be less than 1.0, or null meaning not specified.'),
         this.imageParser = imageParser ?? defaultImageParser;
@@ -224,9 +234,7 @@ class CropImage extends StatelessWidget {
             interactive: interactive,
             willUpdateScale: willUpdateScale,
             scrollZoomSensitivity: scrollZoomSensitivity,
-            imageCropper: imageCropper,
             formatDetector: formatDetector,
-            imageParser: imageParser,
             paddingHorizontal: paddingHorizontal ?? 30,
             paddingVertical: paddingHorizontal ?? 30,
             dotSize: dotTotalSize,
@@ -234,6 +242,10 @@ class CropImage extends StatelessWidget {
             colorDivider: Colors.white.withOpacity(0.5),
             colorCropEdge: colorCropEdge,
             onCropRectChange: onCropRectChange,
+            initCropRectCallBack: initCropRectCallBack,
+            imageCropper: imageCropper,
+            imageParser: imageParser,
+            exifStateMachine: exifStateMachine ?? ExifStateMachine.create(),
           ),
         );
       },
@@ -280,6 +292,10 @@ class _CropEditor extends StatefulWidget {
 
   final Color? colorCropEdge;
 
+  final void Function(Rect initialCropRect)? initCropRectCallBack;
+
+  final ExifStateMachine exifStateMachine;
+
   const _CropEditor({
     super.key,
     required this.image,
@@ -310,9 +326,11 @@ class _CropEditor extends StatefulWidget {
     required this.paddingVertical,
     required this.dotSize,
     required this.alwaysShowCropFrame,
+    required this.exifStateMachine,
     this.colorCropEdge,
     this.colorDivider,
     this.onCropRectChange,
+    this.initCropRectCallBack,
   });
 
   @override
@@ -409,8 +427,8 @@ class _CropEditorState extends State<_CropEditor>
         _resizeWith(_aspectRatio, newArea);
       };
     WidgetsBinding.instance.addPostFrameCallback(
-      (timeStamp) {
-        setState(() {});
+      (timeStamp) async {
+        await _handleInitPostFrame();
       },
     );
   }
@@ -423,8 +441,20 @@ class _CropEditorState extends State<_CropEditor>
       parser: widget.imageParser,
       formatDetector: widget.formatDetector,
       image: widget.image,
+      exifStateMachine: widget.exifStateMachine,
     );
     super.didChangeDependencies();
+  }
+
+  Future<void> _handleInitPostFrame() async {
+    await _parseImageWith(
+      parser: widget.imageParser,
+      formatDetector: widget.formatDetector,
+      image: widget.image,
+      exifStateMachine: widget.exifStateMachine,
+    );
+
+    setState(() {});
   }
 
   void _endMoveDot(DragEndDetails details) {
@@ -471,21 +501,23 @@ class _CropEditorState extends State<_CropEditor>
   }
 
   /// reset image to be cropped
-  void _resetImage(Uint8List targetImage) {
+  void _resetImage(Uint8List targetImage) async {
     widget.onStatusChanged?.call(EnumCropStatus.loading);
     dev.log("_resetImage");
     _parseImageWith(
       parser: widget.imageParser,
       formatDetector: widget.formatDetector,
       image: targetImage,
+      exifStateMachine: widget.exifStateMachine,
     );
   }
 
-  void _parseImageWith({
+  Future<void> _parseImageWith({
     required ImageParser parser,
     required FormatDetector? formatDetector,
     required Uint8List image,
-  }) {
+    required ExifStateMachine exifStateMachine,
+  }) async {
     if (_lastParser == parser &&
         _lastImage == image &&
         _lastFormatDetector == formatDetector) {
@@ -493,35 +525,36 @@ class _CropEditorState extends State<_CropEditor>
       return;
     }
 
+    /// transform image here
     _lastParser = parser;
     _lastFormatDetector = formatDetector;
-    _lastImage = image;
 
     final format = formatDetector?.call(image);
 
-    final future = compute(
+    Future<ImageDetail<dynamic>> future = compute(
       _parseFunc,
-      [widget.imageParser, format, image],
+      [widget.imageParser, format, image, exifStateMachine],
     );
     _lastComputed = future;
-    future.then((parsed) {
-      // check if Crop is still alive
-      if (!mounted) {
-        return;
-      }
+    ImageDetail parsed = await future;
 
-      // if _parseImageWith() is called again before future completed,
-      // just skip and the last future is used.
-      if (_lastComputed == future) {
-        setState(() {
-          _parsedImageDetail = parsed;
-          _lastComputed = null;
-          _detectedFormat = format;
-        });
-        _resetCropRect();
-        widget.onStatusChanged?.call(EnumCropStatus.ready);
-      }
-    });
+    if (!mounted) {
+      return;
+    }
+
+    // if _parseImageWith() is called again before future completed,
+    // just skip and the last future is used.
+    if (_lastComputed == future) {
+      setState(() {
+        _lastImage = parsed.image.buffer.asUint8List();
+        _parsedImageDetail = parsed;
+        _lastComputed = null;
+        _detectedFormat = format;
+      });
+      _resetCropRect();
+      widget.initCropRectCallBack?.call(_cropRect);
+      widget.onStatusChanged?.call(EnumCropStatus.ready);
+    }
   }
 
   /// reset [ViewportBasedRect] of crop rect with current state
@@ -535,7 +568,6 @@ class _CropEditorState extends State<_CropEditor>
     _imageRect = calculator.imageRect(screenSize, imageAspectRatio);
 
     if (widget.initialRectBuilder != null) {
-      dev.log("_resetCropRect, widget.initialRectBuilder");
       cropRect = widget.initialRectBuilder!(
         Rect.fromLTWH(
           0,
@@ -546,9 +578,47 @@ class _CropEditorState extends State<_CropEditor>
         _imageRect,
       );
     } else {
-      dev.log(
-          "_resetCropRect _resizeWith : ${widget.aspectRatio}, image base initial area ${widget.initialArea}");
-      _resizeWith(widget.aspectRatio, widget.initialArea);
+      Rect? initialRect = widget.initialArea;
+
+      if (initialRect != null) {
+        initialRect = widget.initialArea!;
+        var transformedImageRect = Rect.fromLTWH(
+            0, 0, _parsedImageDetail!.width, _parsedImageDetail!.height);
+
+        var tempTransfromMatrix = widget
+            .exifStateMachine.currentResizeOrientation
+            .getTransformByCenter();
+
+        var tempOriginalRect = MatrixUtils.inverseTransformRect(
+            tempTransfromMatrix, transformedImageRect);
+        var originalImageSize =
+            Size(tempOriginalRect.width, tempOriginalRect.height);
+        var originalImageRect = Rect.fromLTWH(
+            0, 0, originalImageSize.width, originalImageSize.height);
+
+        var transformMatrix = widget.exifStateMachine.currentResizeOrientation
+            .getTransformByCenter(
+          origin: Offset(
+            originalImageSize.width / 2,
+            originalImageSize.height / 2,
+          ),
+        );
+        dev.log(
+            "_cropTheRect transformMatrix = ${_parsedImageDetail?.width} - ${_parsedImageDetail?.height}, ${originalImageSize}");
+        var transformRect =
+            MatrixUtils.transformRect(transformMatrix, widget.initialArea!);
+        var transformImage =
+            MatrixUtils.transformRect(transformMatrix, originalImageRect);
+        transformRect =
+            transformRect.translate(-transformImage.left, -transformImage.top);
+        initialRect = transformRect;
+      }
+
+      _resizeWith(
+        widget.aspectRatio,
+        initialRect,
+      );
+
       if (widget.initialArea != null) {
         return;
       }
@@ -585,21 +655,16 @@ class _CropEditorState extends State<_CropEditor>
       );
       var scale = calculator.scaleToCover(_cropRect.size,
           Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height));
-      dev.log("init scale: $scale");
       _applyScale(1 / _scale);
       _applyScale(scale);
-      dev.log("_resizeWith, scale: ${_scale}");
     } else {
       cropRect = calculator.initialCropRect(
         _viewportSize,
         Rect.fromLTWH(0, 0, _viewportSize.width, _viewportSize.height),
-        _aspectRatio ??
-            widget.initialArea?.size.aspectRatio ??
-            _parsedImageDetail!.width / _parsedImageDetail!.height,
+        _aspectRatio ?? area.size.aspectRatio,
         widget.initialSize ?? 1,
       );
-      _imageRect = calculator.imageRect(_viewportSize,
-          _parsedImageDetail!.width / _parsedImageDetail!.height);
+      _imageRect = calculator.imageRect(_viewportSize, area.size.aspectRatio);
 
       ///SCALE ẢNH CHO khop voi crop
       var initialScale = calculator.scaleToCover(
@@ -789,15 +854,38 @@ class _CropEditorState extends State<_CropEditor>
       _parsedImageDetail!,
       _viewportSize,
     );
+
     Rect rect = Rect.fromLTWH(
       (_cropRect.left - _imageRect.left) * screenSizeRatio / _scale,
       (_cropRect.top - _imageRect.top) * screenSizeRatio / _scale,
       _cropRect.width * screenSizeRatio / _scale,
       _cropRect.height * screenSizeRatio / _scale,
     );
+
     rect = rect.intersect(Rect.fromLTWH(
         0.0, 0.0, _parsedImageDetail!.width, _parsedImageDetail!.height));
-    return rect;
+
+    // reverse crop image rectangle
+
+    if (widget.exifStateMachine.isNormal) {
+      return rect;
+    }
+    Matrix4 matrix = widget.exifStateMachine.currentResizeOrientation
+        .getTransformByCenter(origin: rect.center);
+    Rect reverseRect = MatrixUtils.inverseTransformRect(
+      matrix,
+      rect,
+    );
+
+    var offsetImageAfterRotate = Offset.zero;
+    var currentImageRect = Rect.fromLTWH(
+        0, 0, _parsedImageDetail!.width, _parsedImageDetail!.height);
+    var originalRectangle =
+        MatrixUtils.inverseTransformRect(matrix, currentImageRect);
+    offsetImageAfterRotate = originalRectangle.topLeft;
+    reverseRect = reverseRect.translate(
+        -offsetImageAfterRotate.dx, -offsetImageAfterRotate.dy);
+    return reverseRect;
   }
 
   void _onCropRectEnd() {
@@ -852,6 +940,7 @@ class _CropEditorState extends State<_CropEditor>
         ),
         withCircleShape,
         _detectedFormat,
+        widget.exifStateMachine,
       ],
     );
 
@@ -899,7 +988,7 @@ class _CropEditorState extends State<_CropEditor>
                           left: _imageRect.left,
                           top: _imageRect.top,
                           child: Image.memory(
-                            widget.image,
+                            _parsedImageDetail!.imageData,
                             width: _isFitVertically
                                 ? null
                                 : MediaQuery.of(context).size.width * _scale,
@@ -1321,7 +1410,9 @@ class RectTween extends Tween<Rect> {
 ImageDetail _parseFunc(List<dynamic> args) {
   final parser = args[0] as ImageParser;
   final format = args[1] as ImageFormat?;
-  return parser(args[2] as Uint8List, inputFormat: format);
+  final data = args[2] as Uint8List;
+  final exifStateMachine = args[3] as ExifStateMachine;
+  return parser(data, exifStateMachine, inputFormat: format);
 }
 
 /// top-level function for [compute]
@@ -1331,6 +1422,7 @@ FutureOr<Uint8List> _cropFunc(List<dynamic> args) {
   final originalImage = args[1];
   final rect = args[2] as Rect;
   final withCircleShape = args[3] as bool;
+  final exifStateMachine = args[5] as ExifStateMachine;
 
   // TODO(chooyan-eng): currently always PNG
   // final outputFormat = args[4] as ImageFormat?;
@@ -1340,5 +1432,6 @@ FutureOr<Uint8List> _cropFunc(List<dynamic> args) {
     topLeft: Offset(rect.left, rect.top),
     bottomRight: Offset(rect.right, rect.bottom),
     shape: withCircleShape ? ImageShape.circle : ImageShape.rectangle,
+    exifStateMachine: exifStateMachine,
   );
 }
