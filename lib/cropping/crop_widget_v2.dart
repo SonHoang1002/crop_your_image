@@ -26,6 +26,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+
 /// Widget for the entry point of crop_your_image.
 // ignore: must_be_immutable
 class CropImageV2 extends StatelessWidget {
