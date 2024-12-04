@@ -2,22 +2,55 @@ import 'dart:typed_data';
 
 import 'package:crop_image_module/cropping/crop_widget_v2.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() => runApp(const MyApp());
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late Uint8List imageData;
+  bool isLoading = true;
+  String imagePath = "assets/images/IMG_0829_111.JPG";
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (timeStamp) async {
+        imageData = (await rootBundle.load(imagePath))
+            .buffer
+            .asUint8List();
+        isLoading = false;
+        setState(() {});
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CropImageV2(
-      imageData: Uint8List(200),
-      onCropped: (value) {},
-      onCropRect: (cropImageRect, cropRect, imageRect) {},
-      initCropRectCallBack: (Rect initialCropRect) {
-        print("initialCropRect : ${initialCropRect}");
-      },
+    if (isLoading) {
+      return const LinearProgressIndicator(
+        color: Colors.red,
+      );
+    }
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: CropImageV2(
+            imageData: imageData,
+            onCropped: (value) {},
+            onCropRect: (cropImageRect, cropRect, imageRect) {},
+            initCropRectCallBack: (Rect initialCropRect) {
+              print("initialCropRect : ${initialCropRect}");
+            },
+          ),
+        ),
+      ),
     );
   }
 }

@@ -116,6 +116,9 @@ class CropControllerV2 {
   /// change [ViewportBasedRect] of crop rect
   /// based on [ImageBasedRect] of original image.
   set area(ImageBasedRect value) => _delegate.onChangeArea(value);
+  
+  /// Revert ui to initial status 
+  void onResetCrop() => _delegate.onResetCrop(1);
 }
 
 /// Delegate of actions from [CropControllerV2]
@@ -151,4 +154,7 @@ class CropControllerDelegateV2 {
 
   /// callback that [CropControllerV2.area] is changed.
   late ValueChanged<ImageBasedRect> onChangeArea;
+
+  /// callback that reset for first status when user init crop widget
+  late ValueChanged<int> onResetCrop;
 }
