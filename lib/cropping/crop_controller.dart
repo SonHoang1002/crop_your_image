@@ -74,7 +74,7 @@ class CropControllerV2 {
   /// * [isWithoutTransform] is true => Return ui.Image without rotate and flips
   /// * Other => Return image with rotate and flip
   ///
-  Future<ui.Image> crop({bool isWithoutTransform = true}) =>
+  Future<ui.Image?> crop({bool isWithoutTransform = true}) =>
       _delegate.onCrop(false, isWithoutTransform);
 
   /// Return rectangle of crop frame but caculate base on image ( Crop Image Rect )
@@ -94,12 +94,16 @@ class CropControllerV2 {
   /// * [isWithoutTransform] is true => Return ui.Image without rotate and flips
   /// * Other => Return image with rotate and flip
   ///
-  Future<ui.Image> cropCircle({bool isWithoutTransform = true}) =>
+  Future<ui.Image?> cropCircle({bool isWithoutTransform = true}) =>
       _delegate.onCrop(true, isWithoutTransform);
 
   /// Change image to be cropped.
   /// When image is changed, [Rect] of cropping area will be reset.
-  set image(Uint8List value) => _delegate.onImageChanged(value);
+  // set image(Uint8List value) => _delegate.onImageChanged(value);
+
+  /// Change image path to be cropped
+  /// When image is changed, callback scale function to render resized image path
+  set imagePath(String value) => _delegate.onImagePathChanged(value);
 
   /// change fixed aspect ratio
   /// if [value] is null, cropping area can be moved without fixed aspect ratio.
@@ -116,16 +120,16 @@ class CropControllerV2 {
   /// change [ViewportBasedRect] of crop rect
   /// based on [ImageBasedRect] of original image.
   set area(ImageBasedRect value) => _delegate.onChangeArea(value);
-  
-  /// Revert ui to initial status 
-  void onResetCrop() => _delegate.onResetCrop(1);
+
+  /// Revert ui to initial status
+  // void onResetCrop() => _delegate.onResetCrop(1);
 }
 
 /// Delegate of actions from [CropControllerV2]
 class CropControllerDelegateV2 {
   /// callback that [CropControllerV2.crop] is called.
   /// the meaning of the value is if cropping a image with circle shape.
-  late Future<ui.Image> Function(bool value, bool isWithoutTransform) onCrop;
+  late Future<ui.Image?> Function(bool value, bool isWithoutTransform) onCrop;
 
   /// Return rectangle of crop frame with current image that is applied rotate, flipX, flipY value
   ///
@@ -141,7 +145,7 @@ class CropControllerDelegateV2 {
   // late Rect Function() cropPercentRectWithoutTransform;
 
   /// callback that [CropControllerV2.image] is set.
-  late ValueChanged<Uint8List> onImageChanged;
+  late ValueChanged<String> onImagePathChanged;
 
   /// callback that [CropControllerV2.aspectRatio] is set.
   late ValueChanged<double?> onChangeAspectRatio;
@@ -156,5 +160,5 @@ class CropControllerDelegateV2 {
   late ValueChanged<ImageBasedRect> onChangeArea;
 
   /// callback that reset for first status when user init crop widget
-  late ValueChanged<int> onResetCrop;
+  // late ValueChanged<int> onResetCrop;
 }

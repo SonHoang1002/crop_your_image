@@ -200,8 +200,8 @@ class ImageImageCropperV2 {
     canvas.drawImage(transformedImage, Offset.zero, ui.Paint());
 
     ui.Image renderUiImage = await recorder.endRecording().toImage(
-          size.width.toInt(),
-          size.height.toInt(),
+          max(1, size.width).toInt(),
+          max(1, size.height).toInt(),
         );
 
     // reverse image to original form
@@ -254,8 +254,8 @@ class ImageImageCropperV2 {
 
     // Convert the recorded picture to an image with specified width and height
     ui.Image renderUiImage = await recorder.endRecording().toImage(
-          size.width.toInt(),
-          size.height.toInt(),
+          max(1, size.width).toInt(),
+          max(1, size.height).toInt(),
         );
     if (isWithoutTransform) {
       if (exifStateMachine.currentResizeOrientation !=
@@ -314,7 +314,10 @@ class ImageImageCropperV2 {
     canvas.drawImage(renderUiImage, Offset.zero, ui.Paint());
 
     // Complete recording and create the final image with the new dimensions
-    return await recorder.endRecording().toImage(newWidth, newHeight);
+    return await recorder.endRecording().toImage(
+          max(1, newWidth),
+          max(1, newHeight),
+        );
   }
 
   Future<ui.Image> _handleReverseWithTransform({

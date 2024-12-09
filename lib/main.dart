@@ -22,9 +22,7 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
       (timeStamp) async {
-        imageData = (await rootBundle.load(imagePath))
-            .buffer
-            .asUint8List();
+        imageData = (await rootBundle.load(imagePath)).buffer.asUint8List();
         isLoading = false;
         setState(() {});
       },
@@ -42,11 +40,11 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         body: Center(
           child: CropImageV2(
-            imageData: imageData,
+            imageOriginalPath: "imageOriginalPath",
             onCropped: (value) {},
             onCropRect: (cropImageRect, cropRect, imageRect) {},
-            initCropRectCallBack: (Rect initialCropRect) {
-              print("initialCropRect : ${initialCropRect}");
+            onScaleOriginal: (imageOriginalPath, maxDimension) async {
+              return "imageOriginalPath";
             },
           ),
         ),
